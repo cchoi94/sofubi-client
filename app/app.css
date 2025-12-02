@@ -7,9 +7,28 @@
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
+  @apply bg-slate-900 text-white;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
 
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+/* Custom scrollbar for controls panel */
+.controls-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.controls-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.controls-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.controls-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
