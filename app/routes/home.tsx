@@ -599,7 +599,7 @@ function ControlsPanel({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-zinc-800 space-y-2">
+        <div className="p-4 border-t border-zinc-800">
           <button
             onClick={onClear}
             disabled={isLoading}
@@ -608,9 +608,6 @@ function ControlsPanel({
             <Trash2 className="w-3.5 h-3.5" />
             Clear Canvas
           </button>
-          <p className="text-[10px] text-zinc-600 text-center">
-            Click to paint • Right drag to orbit • Scroll to zoom
-          </p>
         </div>
       </div>
     </>
@@ -2065,6 +2062,11 @@ export default function Home() {
         imageUrl={screenshotUrl}
         onClose={handleCloseShareModal}
       />
+
+      {/* Help Text - Bottom Left */}
+      <p className="fixed bottom-4 left-4 text-[12px] text-zinc-300 z-10">
+        Click to paint • Right drag to orbit • Scroll to zoom
+      </p>
     </div>
   );
 }
