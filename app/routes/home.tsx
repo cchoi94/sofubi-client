@@ -490,19 +490,16 @@ function ControlsPanel({
                 <Palette className="w-3 h-3" />
                 Color
               </Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-1">
                 <input
                   type="color"
                   value={brush.color}
                   onChange={(e) => onBrushChange({ color: e.target.value })}
-                  className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+                  className="w-full h-9 rounded-md cursor-pointer bg-transparent"
                 />
-                <Input
-                  type="text"
-                  value={brush.color.toUpperCase()}
-                  onChange={(e) => onBrushChange({ color: e.target.value })}
-                  className="flex-1 font-mono text-xs"
-                />
+                <span className="text-[10px] text-right text-zinc-500 font-mono">
+                  {brush.color.toUpperCase()}
+                </span>
               </div>
             </div>
 
@@ -529,19 +526,16 @@ function ControlsPanel({
             {/* Background Color */}
             <div className="space-y-2">
               <Label>Background</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-1">
                 <input
                   type="color"
                   value={backgroundColor}
                   onChange={(e) => onBackgroundChange(e.target.value)}
-                  className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+                  className="w-full h-9 rounded-md cursor-pointer bg-transparent"
                 />
-                <Input
-                  type="text"
-                  value={backgroundColor.toUpperCase()}
-                  onChange={(e) => onBackgroundChange(e.target.value)}
-                  className="flex-1 font-mono text-xs"
-                />
+                <span className="text-[10px] text-right text-zinc-500 font-mono">
+                  {backgroundColor.toUpperCase()}
+                </span>
               </div>
             </div>
 
@@ -1077,8 +1071,9 @@ export default function Home() {
     // Function to update brush cursor size and color
     const updateBrushCursor = (radius: number, color: string) => {
       // Scale based on brush radius (convert from UV pixels to world units)
-      // Approximate: brush radius in pixels / canvas size * model scale
-      const worldRadius = (radius / PAINT_CANVAS_SIZE) * 3; // Approximate world scale
+      // The model is scaled to ~1.5 units, UV spans the texture
+      // Adjust multiplier to match actual painted area
+      const worldRadius = (radius / PAINT_CANVAS_SIZE) * 1.2; // Smaller to match paint
       brushCursor.scale.setScalar(worldRadius / 0.05); // 0.05 is base circle radius
 
       // Update fill color
