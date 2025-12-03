@@ -151,7 +151,9 @@ export default function Home() {
   const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
   const [cursorMode, setCursorMode] = useState<CursorMode>(CursorMode.Rotate);
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
+  const [hudVisible, setHudVisible] = useState<boolean>(true);
   const isOverModelRef = useRef<boolean>(false);
+  const hudTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ref for cursor mode to use in event handlers
   const cursorModeRef = useRef<CursorMode>(CursorMode.Rotate);
@@ -171,6 +173,46 @@ export default function Home() {
       }
     }
   }, [cursorMode]);
+
+  // ============================================================================
+  // HUD AUTO-HIDE ON INACTIVITY
+  // ============================================================================
+
+  useEffect(() => {
+    let isHudVisible = true;
+
+    const resetHudTimer = () => {
+      // Only trigger re-render if HUD was hidden
+      if (!isHudVisible) {
+        isHudVisible = true;
+        setHudVisible(true);
+      }
+
+      // Clear existing timeout
+      if (hudTimeoutRef.current) {
+        clearTimeout(hudTimeoutRef.current);
+      }
+
+      // Set new timeout to hide HUD after 8 seconds
+      hudTimeoutRef.current = setTimeout(() => {
+        isHudVisible = false;
+        setHudVisible(false);
+      }, 8000);
+    };
+
+    // Listen for mouse movement
+    window.addEventListener("mousemove", resetHudTimer);
+
+    // Initial timer
+    resetHudTimer();
+
+    return () => {
+      window.removeEventListener("mousemove", resetHudTimer);
+      if (hudTimeoutRef.current) {
+        clearTimeout(hudTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Ref for applying shader from outside useEffect
   const applyShaderRef = useRef<((shaderId: string) => void) | null>(null);
@@ -1658,27 +1700,35 @@ export default function Home() {
       </div>
 
       {/* Top Right Toolbar */}
-      <TopRightToolbar
-        animation={animation}
-        onAnimationChange={(changes: Partial<AnimationState>) =>
-          setAnimation((prev) => ({ ...prev, ...changes }))
-        }
-        onClear={handleClear}
-        isLoading={isLoading}
-      />
+      <div
+        className={`transition-opacity duration-300 ${hudVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
+        <TopRightToolbar
+          animation={animation}
+          onAnimationChange={(changes: Partial<AnimationState>) =>
+            setAnimation((prev) => ({ ...prev, ...changes }))
+          }
+          onClear={handleClear}
+          isLoading={isLoading}
+        />
+      </div>
 
       {/* Bottom Toolbar */}
-      <BottomToolbar
-        brush={brush}
-        onBrushChange={handleBrushChange}
-        currentShader={currentShader}
-        onShaderChange={handleShaderChange}
-        cursorMode={cursorMode}
-        onCursorModeChange={setCursorMode}
-        colorHistory={colorHistory}
-        onColorChange={handleColorSelect}
-        onColorCommit={handleColorCommit}
-      />
+      <div
+        className={`transition-opacity duration-300 ${hudVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
+        <BottomToolbar
+          brush={brush}
+          onBrushChange={handleBrushChange}
+          currentShader={currentShader}
+          onShaderChange={handleShaderChange}
+          cursorMode={cursorMode}
+          onCursorModeChange={setCursorMode}
+          colorHistory={colorHistory}
+          onColorChange={handleColorSelect}
+          onColorCommit={handleColorCommit}
+        />
+      </div>
 
       {/* Share Modal */}
       <ShareModal
