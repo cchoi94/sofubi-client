@@ -6,3 +6,4 @@ export * from "./types";
 export * from "./brush";
 export * from "./models";
 export * from "./colors";
+export * from "./hotkeys";

@@ -43,11 +43,13 @@ import {
 // Constants & Types
 import {
   PAINT_CANVAS_SIZE,
-  DEFAULT_BRUSH,
   AVAILABLE_MODELS,
   BASE_COLOR,
   getBaseColorForShader,
   CursorMode,
+  HOTKEYS,
+  BrushType,
+  BRUSH_PRESETS,
 } from "~/constants";
 import type {
   BrushState,
@@ -56,7 +58,7 @@ import type {
 } from "~/constants/types";
 
 // Components
-import { BottomToolbar } from "~/components/BottomToolbar";
+import { BottomToolbar, useBrush } from "~/components/BottomToolbar";
 import { TopRightToolbar } from "~/components/TopRightToolbar";
 import { ShareModal } from "~/components/ShareModal";
 
@@ -104,8 +106,17 @@ export default function Home() {
   const isDraggingModelRef = useRef<boolean>(false); // For move mode dragging
   const dragStartMouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const dragStartModelPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
-  const brushRef = useRef<BrushState>({ ...DEFAULT_BRUSH });
   const thicknessMapRef = useRef<Float32Array | null>(null);
+
+  // Use brush hook for all brush-related state and handlers
+  const {
+    brush,
+    colorHistory,
+    brushRef,
+    handleBrushChange,
+    handleColorSelect,
+    handleColorCommit,
+  } = useBrush();
 
   // Shader system refs
   const currentShaderIdRef = useRef<string>(DEFAULT_SHADER_ID);
@@ -130,7 +141,6 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState<ModelOption>(
     AVAILABLE_MODELS[0]
   ); // Default to Godzilla
-  const [brush, setBrush] = useState<BrushState>({ ...DEFAULT_BRUSH });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string>("");
@@ -140,8 +150,8 @@ export default function Home() {
   });
   const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
   const [cursorMode, setCursorMode] = useState<CursorMode>(CursorMode.Rotate);
-  const [colorHistory, setColorHistory] = useState<string[]>([]);
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
+  const isOverModelRef = useRef<boolean>(false);
 
   // Ref for cursor mode to use in event handlers
   const cursorModeRef = useRef<CursorMode>(CursorMode.Rotate);
@@ -167,11 +177,6 @@ export default function Home() {
 
   // Animation ref for syncing with three.js loop
   const animationRef = useRef<AnimationState>({ spin: false, spinSpeed: 0.5 });
-
-  // Sync brush state with ref for event handlers
-  useEffect(() => {
-    brushRef.current = brush;
-  }, [brush]);
 
   // Sync animation state with ref
   useEffect(() => {
@@ -262,7 +267,9 @@ export default function Home() {
     // -------------------------------------------------------------------------
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.dampingFactor = 0.08; // Higher = smoother ease-out (was 0.05)
+    controls.rotateSpeed = 0.5; // Lower sensitivity for rotation (default is 1.0)
+    controls.panSpeed = 0.5; // Lower sensitivity for panning (default is 1.0)
     controls.minDistance = 0.5;
     controls.maxDistance = 8;
     controls.target.set(0, 0, 0);
@@ -584,7 +591,7 @@ export default function Home() {
     // Use CircleGeometry for a filled circle that shows brush color
     const cursorGeometry = new THREE.CircleGeometry(0.05, 32);
     const cursorMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(DEFAULT_BRUSH.color),
+      color: new THREE.Color(brushRef.current.color),
       transparent: true,
       opacity: 0.5, // Semi-transparent to preview color
       side: THREE.DoubleSide, // Visible from both sides
@@ -1311,6 +1318,10 @@ export default function Home() {
       const result = raycast(event);
 
       if (result) {
+        // Set cursor to default when over model
+        if (canvas) canvas.style.cursor = "default";
+        isOverModelRef.current = true;
+
         // Update brush cursor target position (will be smoothly interpolated)
         const cursor = brushCursorRef.current;
         if (cursor) {
@@ -1337,6 +1348,13 @@ export default function Home() {
           paintAtUV(result.uv);
         }
       } else {
+        // Restore cursor based on mode when not over model
+        if (canvas) {
+          canvas.style.cursor =
+            cursorModeRef.current === CursorMode.Move ? "grab" : "all-scroll";
+        }
+        isOverModelRef.current = false;
+
         // Hide cursor when not over model
         const cursor = brushCursorRef.current;
         if (cursor) {
@@ -1391,9 +1409,13 @@ export default function Home() {
       if (!camera || !controls) return;
 
       // Prevent default arrow key scrolling
-      if (
-        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-      ) {
+      const orbitKeys: string[] = [
+        HOTKEYS.ORBIT_LEFT,
+        HOTKEYS.ORBIT_RIGHT,
+        HOTKEYS.ORBIT_UP,
+        HOTKEYS.ORBIT_DOWN,
+      ];
+      if (orbitKeys.includes(event.key)) {
         event.preventDefault();
       }
 
@@ -1406,16 +1428,16 @@ export default function Home() {
       let targetPhi = currentSpherical.phi;
 
       switch (event.key) {
-        case "ArrowLeft":
+        case HOTKEYS.ORBIT_LEFT:
           targetTheta += ORBIT_ANGLE;
           break;
-        case "ArrowRight":
+        case HOTKEYS.ORBIT_RIGHT:
           targetTheta -= ORBIT_ANGLE;
           break;
-        case "ArrowUp":
+        case HOTKEYS.ORBIT_UP:
           targetPhi = Math.max(0.1, targetPhi - ORBIT_ANGLE);
           break;
-        case "ArrowDown":
+        case HOTKEYS.ORBIT_DOWN:
           targetPhi = Math.min(Math.PI - 0.1, targetPhi + ORBIT_ANGLE);
           break;
         default:
@@ -1500,14 +1522,6 @@ export default function Home() {
   }, [selectedModel]);
 
   // ============================================================================
-  // BRUSH CHANGE HANDLER
-  // ============================================================================
-
-  const handleBrushChange = useCallback((changes: Partial<BrushState>) => {
-    setBrush((prev) => ({ ...prev, ...changes }));
-  }, []);
-
-  // ============================================================================
   // CLEAR CANVAS HANDLER
   // ============================================================================
 
@@ -1563,31 +1577,7 @@ export default function Home() {
   }, []);
 
   // ============================================================================
-  // COLOR SELECT HANDLER (with history)
-  // ============================================================================
-
-  const handleColorSelect = useCallback((color: string) => {
-    // Update brush color
-    setBrush((prev) => ({ ...prev, color }));
-    brushRef.current.color = color;
-  }, []);
-
-  const handleColorCommit = useCallback((color: string) => {
-    // Update brush color
-    setBrush((prev) => ({ ...prev, color }));
-    brushRef.current.color = color;
-
-    // Add to history (avoid duplicates, keep last 5 for history display)
-    setColorHistory((prev) => {
-      const filtered = prev.filter(
-        (c) => c.toLowerCase() !== color.toLowerCase()
-      );
-      return [color, ...filtered].slice(0, 5);
-    });
-  }, []);
-
-  // ============================================================================
-  // KEYBOARD SHORTCUTS FOR CURSOR MODE
+  // KEYBOARD SHORTCUTS FOR CURSOR MODE AND BRUSH
   // ============================================================================
 
   useEffect(() => {
@@ -1600,16 +1590,22 @@ export default function Home() {
         return;
       }
 
-      if (event.key.toLowerCase() === "m") {
+      const key = event.key.toLowerCase();
+
+      if (key === HOTKEYS.CURSOR_MOVE.toLowerCase()) {
         setCursorMode(CursorMode.Move);
-      } else if (event.key.toLowerCase() === "r") {
+      } else if (key === HOTKEYS.CURSOR_ROTATE.toLowerCase()) {
         setCursorMode(CursorMode.Rotate);
+      } else if (key === HOTKEYS.BRUSH_AIRBRUSH) {
+        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Airbrush] });
+      } else if (key === HOTKEYS.BRUSH_PAINTBRUSH) {
+        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
       }
     };
 
     window.addEventListener("keydown", handleModeKeyDown);
     return () => window.removeEventListener("keydown", handleModeKeyDown);
-  }, []);
+  }, [handleBrushChange]);
 
   // ============================================================================
   // RENDER
@@ -1640,7 +1636,7 @@ export default function Home() {
                 ? isGrabbing
                   ? "grabbing"
                   : "grab"
-                : "alias",
+                : "all-scroll",
           }}
           onMouseDown={() => {
             if (cursorMode === CursorMode.Move) setIsGrabbing(true);

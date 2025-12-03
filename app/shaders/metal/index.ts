@@ -17,7 +17,7 @@ import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "color", type: "color", default: "#b8b8bc" }, // Zinc/zamak gray
+  { name: "color", type: "color", default: "#c9c5a8" }, // Zinc/zamak warm yellowish
   {
     name: "metalness",
     type: "number",
@@ -69,7 +69,7 @@ const guiParams: ShaderGuiParam[] = [
  */
 function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color("#b8b8bc"), // Zinc gray
+    color: new THREE.Color("#c9c5a8"), // Zinc/zamak warm yellowish
     metalness: 1.0,
     roughness: 0.35,
     envMapIntensity: 1.0,
