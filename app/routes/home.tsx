@@ -18,19 +18,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { Route } from "./+types/home";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import {
-  computeBoundsTree,
-  disposeBoundsTree,
-  acceleratedRaycast,
-} from "three-mesh-bvh";
 import gsap from "gsap";
 import GUI from "lil-gui";
 
-// Extend THREE.js with BVH methods
-THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
-THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
+// Three.js setup utilities
+import { loadModel, animateModelFadeIn } from "~/three";
 
 // Shaders
 import {
@@ -69,7 +61,7 @@ import { useKeyboardShortcuts } from "~/hooks";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sofubi World" },
+    { title: "Sofubi Space" },
     {
       name: "description",
       content: "Paint directly on 3D models in your browser",
@@ -758,78 +750,14 @@ export default function Home() {
     // -------------------------------------------------------------------------
     // Load 3D Model
     // -------------------------------------------------------------------------
-    const loader = new GLTFLoader();
-
-    loader.load(
-      selectedModel.path,
-      (gltf) => {
-        const model = gltf.scene;
-
-        // Compute bounding box for the entire model for centering and scaling
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-
-        // Calculate scale to fit model in view (target size ~1.5 units for closer view)
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 1.5 / maxDim;
-
-        // Apply scale first
-        model.scale.setScalar(scale);
-
-        // Recalculate center after scaling
-        const scaledBox = new THREE.Box3().setFromObject(model);
-        const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
-
-        // Center the model at origin
-        model.position.sub(scaledCenter);
-
-        // Store all paintable meshes for raycasting
-        const paintableMeshes: THREE.Mesh[] = [];
-
-        // First pass: collect meshes and store original material properties
-        model.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            const originalMaterial =
-              child.material as THREE.MeshStandardMaterial;
-
-            // Log what maps we found in the original material
-            console.log("Original material properties:", {
-              hasMap: !!originalMaterial.map,
-              hasNormalMap: !!originalMaterial.normalMap,
-              hasRoughnessMap: !!originalMaterial.roughnessMap,
-              hasMetalnessMap: !!originalMaterial.metalnessMap,
-              hasAoMap: !!originalMaterial.aoMap,
-              hasBumpMap: !!originalMaterial.bumpMap,
-              roughness: originalMaterial.roughness,
-              metalness: originalMaterial.metalness,
-            });
-
-            // Store original material properties for shader system
-            originalMaterialPropsRef.current.set(child, {
-              normalMap: originalMaterial.normalMap || null,
-              roughnessMap: originalMaterial.roughnessMap || null,
-              metalnessMap: originalMaterial.metalnessMap || null,
-              aoMap: originalMaterial.aoMap || null,
-              emissiveMap: originalMaterial.emissiveMap || null,
-              bumpMap: originalMaterial.bumpMap || null,
-            });
-
-            // Copy UV transform if the original texture had one
-            if (originalMaterial.map) {
-              paintTexture.repeat.copy(originalMaterial.map.repeat);
-              paintTexture.offset.copy(originalMaterial.map.offset);
-              paintTexture.rotation = originalMaterial.map.rotation;
-              paintTexture.center.copy(originalMaterial.map.center);
-            }
-
-            paintableMeshes.push(child);
-
-            // Build BVH for fast raycasting
-            if (child.geometry) {
-              child.geometry.computeBoundsTree();
-            }
-          }
+    loadModel(selectedModel.path, scene, paintTexture, {
+      onProgress: (percent) => {
+        console.log(`Loading model: ${percent.toFixed(1)}%`);
+      },
+      onComplete: ({ model, paintableMeshes, materialPropsMap, scale }) => {
+        // Store original material properties for shader system
+        materialPropsMap.forEach((props, mesh) => {
+          originalMaterialPropsRef.current.set(mesh, props);
         });
 
         // Store paintable meshes ref for shader system
@@ -985,43 +913,9 @@ export default function Home() {
         // Store model reference for animation
         modelObjRef.current = model;
 
-        scene.add(model);
-
-        // GSAP fade-in animation for the model
-        // Start with opacity 0 and scale slightly smaller
-        paintableMeshes.forEach((mesh) => {
-          const mat = mesh.material as THREE.Material;
-          mat.transparent = true;
-          (mat as any).opacity = 0;
-        });
-        model.scale.setScalar(scale * 0.9); // Start slightly smaller
-
-        // Animate opacity and scale
-        const fadeInState = { opacity: 0, scale: scale * 0.9 };
-        gsap.to(fadeInState, {
-          opacity: 1,
-          scale: scale,
-          duration: 0.8,
-          ease: "power2.out",
-          onUpdate: () => {
-            paintableMeshes.forEach((mesh) => {
-              const mat = mesh.material as THREE.Material;
-              (mat as any).opacity = fadeInState.opacity;
-
-              // For ShaderMaterials, also update the uniform if it exists
-              if ((mat as THREE.ShaderMaterial).uniforms?.opacity) {
-                (mat as THREE.ShaderMaterial).uniforms.opacity.value =
-                  fadeInState.opacity;
-              }
-            });
-            model.scale.setScalar(fadeInState.scale);
-          },
-          onComplete: () => {
-            // Optionally disable transparency after fade completes for better performance
-            // paintableMeshes.forEach((mesh) => {
-            //   (mesh.material as THREE.Material).transparent = false;
-            // });
-          },
+        // Animate model fade-in
+        animateModelFadeIn(model, paintableMeshes, scale, () => {
+          // Optional: disable transparency after fade completes
         });
 
         setIsLoading(false);
@@ -1034,16 +928,11 @@ export default function Home() {
           `Loaded model with ${paintableMeshes.length} paintable meshes`
         );
       },
-      (progress) => {
-        // Optional: track loading progress
-        const percent = (progress.loaded / progress.total) * 100;
-        console.log(`Loading model: ${percent.toFixed(1)}%`);
-      },
-      (error) => {
+      onError: (error) => {
         console.error("Error loading model:", error);
         setIsLoading(false);
-      }
-    );
+      },
+    });
 
     // -------------------------------------------------------------------------
     // Animation Loop
