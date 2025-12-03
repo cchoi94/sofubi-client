@@ -58,6 +58,7 @@ import {
   shaders,
   getShaderById,
   DEFAULT_SHADER_ID,
+  ShaderId,
   type CustomShader,
   type ShaderConfig,
 } from "../shaders";
@@ -130,11 +131,11 @@ const BASE_COLOR = "#F3E9D7"; // Default warm white
 
 // Shader-specific base colors for better material appearance
 const SHADER_BASE_COLORS: Record<string, string> = {
-  "standard-pbr": "#F3E9D7", // Warm off-white (sofubi/vinyl look)
-  "pearlescent-armor": "#E8E8EC", // Cool silver-white for chrome
-  "transparent-plastic": "#F0F4F8", // Very light blue-white for clear plastic
-  "ceramic-glaze": "#FAF6F0", // Warm cream for ceramic
-  metal: "#C0C0C8", // Silver-gray for die-cast metal
+  [ShaderId.STANDARD]: "#F3E9D7", // Warm off-white (sofubi/vinyl look)
+  [ShaderId.PEARLESCENT]: "#E8E8EC", // Cool silver-white for chrome
+  [ShaderId.TRANSPARENT_PLASTIC]: "#F0F4F8", // Very light blue-white for clear plastic
+  [ShaderId.CERAMIC]: "#FAF6F0", // Warm cream for ceramic
+  [ShaderId.METAL]: "#C0C0C8", // Silver-gray for die-cast metal
 };
 
 // Helper to get base color for a shader
@@ -1361,7 +1362,7 @@ export default function Home() {
             .add(materialParams, "roughness", 0, 1, 0.01)
             .name("Roughness")
             .onChange((v: number) => {
-              if (currentShaderIdRef.current !== "standard-pbr") return;
+              if (currentShaderIdRef.current !== "ceramic-glaze") return;
               paintableMeshes.forEach((mesh) => {
                 const mat = mesh.material as THREE.MeshStandardMaterial;
                 if (mat.roughness !== undefined) mat.roughness = v;

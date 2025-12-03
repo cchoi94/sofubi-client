@@ -98,21 +98,21 @@ void main() {
   vec3 rimColor = tint * rimBrightness * rim;
 
   // Very subtle diffuse tint
-  vec3 diffuseTint = tint * 0.1 * (NdotL1 * 0.5 + NdotL2 * 0.3 + 0.2);
+  vec3 diffuseTint = tint * 0.05 * (NdotL1 * 0.5 + NdotL2 * 0.3 + 0.2);
 
   // Paint contribution - painted areas should be more opaque and visible
   vec3 paintContribution = paintColor.rgb * paintColor.a * (NdotL1 * 0.6 + NdotL2 * 0.3 + 0.4);
 
-  // Combine
-  vec3 color = diffuseTint + specular + reflection + rimColor + paintContribution;
+  // Combine - glass-like with mostly specular/reflection
+  vec3 color = diffuseTint + specular * 1.5 + reflection * 1.2 + rimColor * 0.5 + paintContribution;
 
-  // Alpha - slightly see-through with visible form
-  float alpha = opacity * 0.15; // Base slightly visible
-  alpha += fresnel * 0.2;  // Visible edge glow
-  alpha += rim * 0.1;      // Subtle rim
-  alpha += (spec1 + spec2) * 0.25; // Highlights visible
-  alpha += paintColor.a * 0.9; // Painted areas opaque
-  alpha = clamp(alpha, 0.08, 0.95); // Minimum visibility
+  // Alpha - glass-like transparency, mostly invisible except reflections
+  float alpha = opacity * 0.03; // Nearly invisible base
+  alpha += fresnel * 0.12;  // Subtle edge visibility
+  alpha += rim * 0.04;      // Very faint rim
+  alpha += (spec1 + spec2) * 0.4; // Specular highlights more visible
+  alpha += paintColor.a * 0.95; // Painted areas opaque
+  alpha = clamp(alpha, 0.02, 0.95); // Allow near-invisible
 
   // Light gamma correction, keep it bright
   color = pow(color, vec3(1.0 / 2.0));
