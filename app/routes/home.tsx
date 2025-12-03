@@ -1067,6 +1067,9 @@ export default function Home() {
     const cursorLerpSpeed = 0.35; // How fast cursor catches up (0-1, higher = faster)
     let cursorInitialized = false;
 
+    // Track last paint UV for continuous airbrush spraying
+    let lastPaintUV: THREE.Vector2 | null = null;
+
     // Function to update brush cursor size and color
     const updateBrushCursor = (radius: number, color: string) => {
       // Scale based on brush radius (convert from UV pixels to world units)
@@ -1445,6 +1448,11 @@ export default function Home() {
         modelRef.rotation.y += 0.01 * animationRef.current.spinSpeed;
       }
 
+      // Continuous airbrush spraying while holding mouse button
+      if (isPaintingRef.current && lastPaintUV && brushRef.current.type === "airbrush") {
+        paintAtUV(lastPaintUV);
+      }
+
       renderer.render(scene, camera);
     };
     renderer.setAnimationLoop(animate);
@@ -1705,6 +1713,7 @@ export default function Home() {
           // We hit the model, start painting
           event.preventDefault();
           isPaintingRef.current = true;
+          lastPaintUV = uv.clone();
           paintAtUV(uv);
         }
       }
@@ -1740,6 +1749,7 @@ export default function Home() {
 
         // Paint if in painting mode
         if (isPaintingRef.current) {
+          lastPaintUV = result.uv.clone();
           paintAtUV(result.uv);
         }
       } else {
@@ -1749,6 +1759,7 @@ export default function Home() {
           cursor.visible = false;
           cursorInitialized = false; // Reset so next hit snaps immediately
         }
+        lastPaintUV = null; // Clear paint UV when off model
       }
     };
 
