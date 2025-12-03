@@ -1449,7 +1449,11 @@ export default function Home() {
       }
 
       // Continuous airbrush spraying while holding mouse button
-      if (isPaintingRef.current && lastPaintUV && brushRef.current.type === "airbrush") {
+      if (
+        isPaintingRef.current &&
+        lastPaintUV &&
+        brushRef.current.type === "airbrush"
+      ) {
         paintAtUV(lastPaintUV);
       }
 
