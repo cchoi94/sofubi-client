@@ -17,14 +17,50 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Route } from "./+types/home";
 
+// Utility for class names
+import { cn } from "../lib/utils";
+
+// Icons
+import {
+  ChevronLeft,
+  ChevronRight,
+  RotateCw,
+  Trash2,
+  Palette,
+  Circle,
+  Paintbrush,
+  Sparkles,
+} from "lucide-react";
+
 // three.js imports
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+// BVH for fast raycasting
+import {
+  computeBoundsTree,
+  disposeBoundsTree,
+  acceleratedRaycast,
+} from "three-mesh-bvh";
+
+// Extend THREE.Mesh prototype with BVH methods
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
 // Animation and GUI
 import gsap from "gsap";
 import GUI from "lil-gui";
+
+// Shader system
+import {
+  shaders,
+  getShaderById,
+  DEFAULT_SHADER_ID,
+  type CustomShader,
+  type ShaderConfig,
+} from "../shaders";
 
 // ============================================================================
 // META FUNCTION
@@ -44,10 +80,14 @@ export function meta({}: Route.MetaArgs) {
 // TYPES
 // ============================================================================
 
+type BrushType = "airbrush" | "paintbrush";
+
 interface BrushState {
+  type: BrushType;
   color: string;
   radius: number;
   opacity: number;
+  hardness: number; // 0 = soft edges, 1 = hard edges
 }
 
 interface ShareModalProps {
@@ -63,19 +103,129 @@ interface ShareModalProps {
 // Paint canvas resolution - higher = more detail but slower
 const PAINT_CANVAS_SIZE = 2048;
 
-// Default brush settings
-const DEFAULT_BRUSH: BrushState = {
-  color: "#ff0000",
-  radius: 16,
-  opacity: 0.5,
+// Brush presets
+const BRUSH_PRESETS: Record<BrushType, Omit<BrushState, "color">> = {
+  airbrush: {
+    type: "airbrush",
+    radius: 50,
+    opacity: 1.0,
+    hardness: 0.2, // Very soft edges
+  },
+  paintbrush: {
+    type: "paintbrush",
+    radius: 16,
+    opacity: 1.0,
+    hardness: 0.8, // Harder edges
+  },
 };
 
-// Base color for the paint canvas (light gray to see brush strokes)
-const BASE_COLOR = "#e0e0e0";
+// Default brush settings
+const DEFAULT_BRUSH: BrushState = {
+  ...BRUSH_PRESETS.airbrush,
+  color: "#ff0000",
+};
 
-// Path to the 3D model - change this to load a different GLB file
-// The model should have proper UV coordinates for painting to work
-const MODEL_PATH = "/assets/godzilla/godzilla.glb";
+// Base color for the paint canvas - changes based on shader
+const BASE_COLOR = "#F3E9D7"; // Default warm white
+
+// Shader-specific base colors for better material appearance
+const SHADER_BASE_COLORS: Record<string, string> = {
+  "standard-pbr": "#F3E9D7", // Warm off-white (sofubi/vinyl look)
+  "pearlescent-armor": "#E8E8EC", // Cool silver-white for chrome
+  "transparent-plastic": "#F0F4F8", // Very light blue-white for clear plastic
+  "ceramic-glaze": "#FAF6F0", // Warm cream for ceramic
+  metal: "#C0C0C8", // Silver-gray for die-cast metal
+};
+
+// Helper to get base color for a shader
+const getBaseColorForShader = (shaderId: string): string => {
+  return SHADER_BASE_COLORS[shaderId] || BASE_COLOR;
+};
+
+// Available 3D models
+interface ModelOption {
+  id: string;
+  name: string;
+  path: string;
+  thumbnail?: string;
+}
+
+const AVAILABLE_MODELS: ModelOption[] = [
+  { id: "godzilla", name: "Godzilla", path: "/assets/godzilla.glb" },
+  {
+    id: "king_ghidorah",
+    name: "King Ghidorah",
+    path: "/assets/king_ghidorah.glb",
+  },
+  { id: "mothra", name: "Mothra", path: "/assets/mothra.glb" },
+];
+
+// ============================================================================
+// MODEL SELECTION COMPONENT
+// ============================================================================
+
+interface ModelSelectionProps {
+  onSelectModel: (model: ModelOption) => void;
+}
+
+function ModelSelection({ onSelectModel }: ModelSelectionProps) {
+  return (
+    <div className="fixed inset-0 bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center z-50">
+      <div className="max-w-4xl w-full mx-4">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-bold text-white mb-3">
+            🎨 3D Mesh Painter
+          </h1>
+          <p className="text-slate-400 text-lg">
+            Choose a model to start painting
+          </p>
+        </div>
+
+        {/* Model Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {AVAILABLE_MODELS.map((model) => (
+            <button
+              key={model.id}
+              onClick={() => onSelectModel(model)}
+              className="group relative bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-6 hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/10"
+            >
+              {/* Model Icon/Preview Area */}
+              <div className="aspect-square bg-slate-900/50 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
+                <div className="text-6xl group-hover:scale-110 transition-transform duration-300">
+                  {model.id === "godzilla" && "🦖"}
+                  {model.id === "king_ghidorah" && "🐉"}
+                  {model.id === "mothra" && "🦋"}
+                </div>
+              </div>
+
+              {/* Model Name */}
+              <h3 className="text-xl font-semibold text-white group-hover:text-blue-400 transition-colors">
+                {model.name}
+              </h3>
+
+              {/* Click Hint */}
+              <p className="text-sm text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+                Click to paint
+              </p>
+
+              {/* Hover Glow Effect */}
+              <div className="absolute inset-0 rounded-2xl bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors pointer-events-none" />
+            </button>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="text-center mt-10 text-slate-500 text-sm">
+          <p>
+            Paint directly on 3D models • Export your creations • Share with
+            friends
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ============================================================================
 // SHARE MODAL COMPONENT
@@ -211,161 +361,258 @@ function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
 // CONTROLS PANEL COMPONENT
 // ============================================================================
 
+interface AnimationState {
+  spin: boolean;
+  spinSpeed: number;
+}
+
 interface ControlsPanelProps {
   brush: BrushState;
   onBrushChange: (brush: Partial<BrushState>) => void;
   onClear: () => void;
-  onShare: () => void;
   isLoading: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  animation: AnimationState;
+  onAnimationChange: (animation: Partial<AnimationState>) => void;
+  currentShader: string;
+  onShaderChange: (shaderId: string) => void;
+  backgroundColor: string;
+  onBackgroundChange: (color: string) => void;
 }
 
 function ControlsPanel({
   brush,
   onBrushChange,
   onClear,
-  onShare,
   isLoading,
+  isOpen,
+  onToggle,
+  animation,
+  onAnimationChange,
+  currentShader,
+  onShaderChange,
+  backgroundColor,
+  onBackgroundChange,
 }: ControlsPanelProps) {
   return (
-    <div className="w-72 md:w-80 p-5 border-l border-slate-700 bg-slate-900/95 backdrop-blur-sm flex flex-col controls-panel overflow-y-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white mb-1">3D Mesh Painter</h1>
-        <p className="text-slate-400 text-sm">
-          Click and drag on the model to paint
-        </p>
-      </div>
+    <>
+      {/* Toggle Button */}
+      <button
+        onClick={onToggle}
+        className={cn(
+          "fixed top-4 z-30 h-9 w-9 rounded-md",
+          "bg-zinc-900/80 backdrop-blur-sm border border-zinc-800",
+          "flex items-center justify-center",
+          "text-zinc-400 hover:text-white hover:bg-zinc-800",
+          "transition-all duration-200",
+          isOpen ? "right-68" : "right-4"
+        )}
+      >
+        {isOpen ? (
+          <ChevronRight className="w-4 h-4" />
+        ) : (
+          <ChevronLeft className="w-4 h-4" />
+        )}
+      </button>
 
-      {/* Loading State */}
-      {isLoading && (
-        <div className="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
-          <div className="flex items-center gap-3">
-            <div className="w-5 h-5 border-2 border-slate-500 border-t-white rounded-full animate-spin"></div>
-            <span className="text-slate-300">Loading model...</span>
+      {/* Panel */}
+      <div
+        className={cn(
+          "fixed right-0 top-0 bottom-0 z-20 w-64",
+          "bg-zinc-950/95 backdrop-blur-md border-l border-zinc-800",
+          "transition-transform duration-200 ease-out",
+          "flex flex-col",
+          isOpen ? "translate-x-0" : "translate-x-full"
+        )}
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-zinc-800">
+          <h1 className="text-sm font-medium text-white">Sofubi Painter</h1>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Loading */}
+          {isLoading && (
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <div className="w-3 h-3 border border-zinc-600 border-t-white rounded-full animate-spin" />
+              Loading...
+            </div>
+          )}
+
+          {/* Shader Selection */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              <Sparkles className="w-3 h-3" />
+              Material
+            </label>
+            <div className="grid grid-cols-1 gap-1">
+              {shaders.map((shader) => (
+                <button
+                  key={shader.id}
+                  onClick={() => onShaderChange(shader.id)}
+                  className={cn(
+                    "px-3 py-2 rounded-md text-left text-sm transition-colors",
+                    currentShader === shader.id
+                      ? "bg-white text-zinc-900 font-medium"
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                  )}
+                >
+                  {shader.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-zinc-800" />
+
+          {/* Brush Type */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              <Paintbrush className="w-3 h-3" />
+              Brush
+            </label>
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                onClick={() => onBrushChange({ ...BRUSH_PRESETS.airbrush })}
+                className={cn(
+                  "px-3 py-2 rounded-md text-sm transition-colors",
+                  brush.type === "airbrush"
+                    ? "bg-white text-zinc-900 font-medium"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                )}
+              >
+                Airbrush
+              </button>
+              <button
+                onClick={() => onBrushChange({ ...BRUSH_PRESETS.paintbrush })}
+                className={cn(
+                  "px-3 py-2 rounded-md text-sm transition-colors",
+                  brush.type === "paintbrush"
+                    ? "bg-white text-zinc-900 font-medium"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                )}
+              >
+                Paintbrush
+              </button>
+            </div>
+          </div>
+
+          {/* Color */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              <Palette className="w-3 h-3" />
+              Color
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="color"
+                value={brush.color}
+                onChange={(e) => onBrushChange({ color: e.target.value })}
+                className="w-10 h-10 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+              />
+              <input
+                type="text"
+                value={brush.color.toUpperCase()}
+                onChange={(e) => onBrushChange({ color: e.target.value })}
+                className="flex-1 h-10 bg-zinc-900 border border-zinc-700 rounded-md px-3 text-white font-mono text-xs focus:outline-none focus:border-zinc-500"
+              />
+            </div>
+          </div>
+
+          {/* Size */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <Circle className="w-3 h-3" />
+                Size
+              </label>
+              <span className="text-xs text-zinc-500">{brush.radius}px</span>
+            </div>
+            <input
+              type="range"
+              min="5"
+              max={brush.type === "airbrush" ? 150 : 100}
+              value={brush.radius}
+              onChange={(e) =>
+                onBrushChange({ radius: Number(e.target.value) })
+              }
+              className="w-full h-1 bg-zinc-800 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+            />
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-zinc-800" />
+
+          {/* Background Color */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              Background
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="color"
+                value={backgroundColor}
+                onChange={(e) => onBackgroundChange(e.target.value)}
+                className="w-10 h-10 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+              />
+              <input
+                type="text"
+                value={backgroundColor.toUpperCase()}
+                onChange={(e) => onBackgroundChange(e.target.value)}
+                className="flex-1 h-10 bg-zinc-900 border border-zinc-700 rounded-md px-3 text-white font-mono text-xs focus:outline-none focus:border-zinc-500"
+              />
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-zinc-800" />
+
+          {/* Spin Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <RotateCw
+                  className={cn("w-3 h-3", animation.spin && "animate-spin")}
+                />
+                Auto Spin
+              </label>
+              <button
+                onClick={() => onAnimationChange({ spin: !animation.spin })}
+                className={cn(
+                  "w-8 h-5 rounded-full transition-colors relative",
+                  animation.spin ? "bg-white" : "bg-zinc-700"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform",
+                    animation.spin ? "translate-x-3 bg-zinc-900" : "bg-zinc-400"
+                  )}
+                />
+              </button>
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Brush Color */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-slate-300 mb-2">
-          Brush Color
-        </label>
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={brush.color}
-            onChange={(e) => onBrushChange({ color: e.target.value })}
-            className="w-12 h-12 rounded-lg cursor-pointer border-2 border-slate-600 bg-transparent"
-          />
-          <input
-            type="text"
-            value={brush.color.toUpperCase()}
-            onChange={(e) => onBrushChange({ color: e.target.value })}
-            className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-slate-500"
-          />
-        </div>
-      </div>
-
-      {/* Brush Size */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-slate-300 mb-2">
-          Brush Size: {brush.radius}px
-        </label>
-        <input
-          type="range"
-          min="5"
-          max="100"
-          value={brush.radius}
-          onChange={(e) => onBrushChange({ radius: Number(e.target.value) })}
-          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-        />
-        <div className="flex justify-between text-xs text-slate-500 mt-1">
-          <span>5px</span>
-          <span>100px</span>
-        </div>
-      </div>
-
-      {/* Brush Opacity */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-slate-300 mb-2">
-          Brush Opacity: {Math.round(brush.opacity * 100)}%
-        </label>
-        <input
-          type="range"
-          min="10"
-          max="100"
-          value={brush.opacity * 100}
-          onChange={(e) =>
-            onBrushChange({ opacity: Number(e.target.value) / 100 })
-          }
-          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-        />
-        <div className="flex justify-between text-xs text-slate-500 mt-1">
-          <span>10%</span>
-          <span>100%</span>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="border-t border-slate-700 my-4"></div>
-
-      {/* Action Buttons */}
-      <div className="space-y-3">
-        {/* Clear Button */}
-        <button
-          onClick={onClear}
-          disabled={isLoading}
-          className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-lg transition-colors"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {/* Footer */}
+        <div className="p-4 border-t border-zinc-800 space-y-2">
+          <button
+            onClick={onClear}
+            disabled={isLoading}
+            className="w-full h-9 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-sm text-white font-medium transition-colors flex items-center justify-center gap-2"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-          Clear / Reset
-        </button>
-
-        {/* Share Button */}
-        <button
-          onClick={onShare}
-          disabled={isLoading}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-lg transition-colors"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-            />
-          </svg>
-          Share / Export
-        </button>
-      </div>
-
-      {/* Footer */}
-      <div className="mt-auto pt-6">
-        <div className="text-xs text-slate-500 space-y-1">
-          <p>🎨 Left click & drag to paint</p>
-          <p>💡 Right drag or arrow keys to orbit</p>
-          <p>🔍 Scroll wheel to zoom</p>
+            <Trash2 className="w-3.5 h-3.5" />
+            Clear Canvas
+          </button>
+          <p className="text-[10px] text-zinc-600 text-center">
+            Click to paint • Right drag to orbit • Scroll to zoom
+          </p>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -394,17 +641,58 @@ export default function Home() {
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
   const brushRef = useRef<BrushState>({ ...DEFAULT_BRUSH });
+  const thicknessMapRef = useRef<Float32Array | null>(null);
+
+  // Shader system refs
+  const currentShaderIdRef = useRef<string>(DEFAULT_SHADER_ID);
+  const shaderConfigRef = useRef<ShaderConfig | null>(null);
+  const shaderGuiControllerRef = useRef<GUI | null>(null);
+  const paintableMeshesRef = useRef<THREE.Mesh[]>([]);
+  const originalMaterialPropsRef = useRef<
+    Map<
+      THREE.Mesh,
+      {
+        normalMap: THREE.Texture | null;
+        roughnessMap: THREE.Texture | null;
+        metalnessMap: THREE.Texture | null;
+        aoMap: THREE.Texture | null;
+        emissiveMap: THREE.Texture | null;
+        bumpMap: THREE.Texture | null;
+      }
+    >
+  >(new Map());
 
   // React state for UI
+  const [selectedModel, setSelectedModel] = useState<ModelOption>(
+    AVAILABLE_MODELS[0]
+  ); // Default to Godzilla
   const [brush, setBrush] = useState<BrushState>({ ...DEFAULT_BRUSH });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string>("");
+  const [isPanelOpen, setIsPanelOpen] = useState<boolean>(true);
+  const [animation, setAnimation] = useState<AnimationState>({
+    spin: false,
+    spinSpeed: 0.5,
+  });
+  const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
+  const [backgroundColor, setBackgroundColor] = useState<string>("#33364D"); // slate-800
+
+  // Ref for applying shader from outside useEffect
+  const applyShaderRef = useRef<((shaderId: string) => void) | null>(null);
+
+  // Animation ref for syncing with three.js loop
+  const animationRef = useRef<AnimationState>({ spin: false, spinSpeed: 0.5 });
 
   // Sync brush state with ref for event handlers
   useEffect(() => {
     brushRef.current = brush;
   }, [brush]);
+
+  // Sync animation state with ref
+  useEffect(() => {
+    animationRef.current = animation;
+  }, [animation]);
 
   // ============================================================================
   // THREE.JS SETUP & CLEANUP
@@ -528,49 +816,247 @@ export default function Home() {
     scene.add(rimLight);
 
     // -------------------------------------------------------------------------
-    // Initialize lil-gui for debug controls
+    // Animation State (for model spin) - uses React ref for syncing
     // -------------------------------------------------------------------------
-    const gui = new GUI({ title: "🎨 Painter Settings" });
-    gui.domElement.style.position = "absolute";
-    gui.domElement.style.top = "10px";
-    gui.domElement.style.right = "340px";
+    let modelRef: THREE.Object3D | null = null; // Reference to the loaded model
 
-    // Lighting folder
-    const lightingFolder = gui.addFolder("Lighting");
-    lightingFolder
-      .add(lightingParams, "ambientIntensity", 0, 1, 0.01)
-      .name("Ambient")
-      .onChange((v: number) => {
-        ambientLight.intensity = v;
-      });
-    lightingFolder
-      .add(lightingParams, "hemiIntensity", 0, 2, 0.01)
-      .name("Hemisphere")
-      .onChange((v: number) => {
-        hemiLight.intensity = v;
-      });
-    lightingFolder
-      .add(lightingParams, "keyIntensity", 0, 3, 0.01)
-      .name("Key Light")
-      .onChange((v: number) => {
-        keyLight.intensity = v;
-      });
-    lightingFolder
-      .add(lightingParams, "fillIntensity", 0, 2, 0.01)
-      .name("Fill Light")
-      .onChange((v: number) => {
-        fillLight.intensity = v;
-      });
-    lightingFolder
-      .add(lightingParams, "rimIntensity", 0, 2, 0.01)
-      .name("Rim Light")
-      .onChange((v: number) => {
-        rimLight.intensity = v;
-      });
-    lightingFolder.open();
+    // -------------------------------------------------------------------------
+    // Initialize lil-gui for debug controls (development only)
+    // -------------------------------------------------------------------------
+    const isDev = import.meta.env.DEV;
+    const gui = isDev ? new GUI({ title: "🎨 Debug Settings" }) : null;
+    if (gui) {
+      gui.domElement.style.position = "absolute";
+      gui.domElement.style.top = "10px";
+      gui.domElement.style.left = "10px"; // Moved to left side since panel slides
 
-    // Material folder (will be populated after model loads)
-    const materialFolder = gui.addFolder("Material");
+      // Animation folder (at the top for easy access) - syncs with React state
+      const animationFolder = gui.addFolder("Animation");
+      const guiAnimState = { spin: false, spinSpeed: 0.5 };
+      animationFolder
+        .add(guiAnimState, "spin")
+        .name("🔄 Spin Model")
+        .onChange((v: boolean) => {
+          setAnimation((prev) => ({ ...prev, spin: v }));
+        });
+      animationFolder
+        .add(guiAnimState, "spinSpeed", 0.1, 3, 0.1)
+        .name("Spin Speed")
+        .onChange((v: number) => {
+          setAnimation((prev) => ({ ...prev, spinSpeed: v }));
+        });
+      animationFolder.open();
+
+      // Lighting folder
+      const lightingFolder = gui.addFolder("Lighting");
+      lightingFolder
+        .add(lightingParams, "ambientIntensity", 0, 1, 0.01)
+        .name("Ambient")
+        .onChange((v: number) => {
+          ambientLight.intensity = v;
+        });
+      lightingFolder
+        .add(lightingParams, "hemiIntensity", 0, 2, 0.01)
+        .name("Hemisphere")
+        .onChange((v: number) => {
+          hemiLight.intensity = v;
+        });
+      lightingFolder
+        .add(lightingParams, "keyIntensity", 0, 3, 0.01)
+        .name("Key Light")
+        .onChange((v: number) => {
+          keyLight.intensity = v;
+        });
+      lightingFolder
+        .add(lightingParams, "fillIntensity", 0, 2, 0.01)
+        .name("Fill Light")
+        .onChange((v: number) => {
+          fillLight.intensity = v;
+        });
+      lightingFolder
+        .add(lightingParams, "rimIntensity", 0, 2, 0.01)
+        .name("Rim Light")
+        .onChange((v: number) => {
+          rimLight.intensity = v;
+        });
+      lightingFolder.open();
+    }
+
+    // -------------------------------------------------------------------------
+    // Shader System Setup
+    // -------------------------------------------------------------------------
+
+    // Build shader options object for dropdown
+    const shaderOptions: Record<string, string> = {};
+    shaders.forEach((s) => {
+      shaderOptions[s.name] = s.id;
+    });
+
+    // Current shader params storage
+    const shaderParams: Record<string, any> = { shader: DEFAULT_SHADER_ID };
+
+    // Shader folder (dev only)
+    const shaderFolder = gui?.addFolder("Shader") ?? null;
+
+    // Function to apply shader to all meshes
+    const applyShader = (shaderId: string) => {
+      const shader = getShaderById(shaderId);
+      if (!shader) return;
+
+      const paintTexture = paintTextureRef.current;
+      if (!paintTexture) return;
+
+      const meshes = paintableMeshesRef.current;
+      if (meshes.length === 0) return;
+
+      // Dispose old shader GUI controllers (except the shader dropdown)
+      if (shaderGuiControllerRef.current) {
+        // Remove all controllers except the first one (shader dropdown)
+        const controllers = [...shaderGuiControllerRef.current.controllers];
+        controllers.slice(1).forEach((c) => c.destroy());
+        shaderGuiControllerRef.current.folders.forEach((f) => f.destroy());
+      }
+
+      // Update current shader ref
+      currentShaderIdRef.current = shaderId;
+
+      // Create shader config
+      const firstMeshProps = originalMaterialPropsRef.current.get(meshes[0]);
+      const config: ShaderConfig = {
+        paintTexture,
+        normalMap: firstMeshProps?.normalMap || null,
+        roughnessMap: firstMeshProps?.roughnessMap || null,
+        metalnessMap: firstMeshProps?.metalnessMap || null,
+        aoMap: firstMeshProps?.aoMap || null,
+        emissiveMap: firstMeshProps?.emissiveMap || null,
+        bumpMap: firstMeshProps?.bumpMap || null,
+        envMap: null,
+      };
+      shaderConfigRef.current = config;
+
+      // Create new material from shader
+      meshes.forEach((mesh) => {
+        // Dispose old material
+        const oldMat = mesh.material as THREE.Material;
+        if (oldMat && typeof (oldMat as any).dispose === "function") {
+          const currentShader = getShaderById(currentShaderIdRef.current);
+          if (currentShader?.dispose) {
+            currentShader.dispose(oldMat);
+          } else {
+            oldMat.dispose();
+          }
+        }
+
+        // Get mesh-specific config
+        const meshProps = originalMaterialPropsRef.current.get(mesh);
+        const meshConfig: ShaderConfig = {
+          paintTexture,
+          normalMap: meshProps?.normalMap || null,
+          roughnessMap: meshProps?.roughnessMap || null,
+          metalnessMap: meshProps?.metalnessMap || null,
+          aoMap: meshProps?.aoMap || null,
+          emissiveMap: meshProps?.emissiveMap || null,
+          bumpMap: meshProps?.bumpMap || null,
+          envMap: null,
+        };
+
+        // Create and apply new material
+        const newMat = shader.createMaterial(meshConfig);
+        newMat.transparent = true;
+        mesh.material = newMat;
+      });
+
+      // Build GUI params from shader definition
+      const guiParamValues: Record<string, any> = {};
+      shader.guiParams.forEach((param) => {
+        guiParamValues[param.name] = param.default;
+      });
+
+      // Add shader-specific GUI controls
+      if (shaderGuiControllerRef.current) {
+        shader.guiParams.forEach((param) => {
+          if (param.type === "number") {
+            shaderGuiControllerRef
+              .current!.add(
+                guiParamValues,
+                param.name,
+                param.min,
+                param.max,
+                param.step
+              )
+              .name(
+                param.name
+                  .replace(/([A-Z])/g, " $1")
+                  .replace(/^./, (s) => s.toUpperCase())
+              )
+              .onChange((v: number) => {
+                guiParamValues[param.name] = v;
+                meshes.forEach((mesh) => {
+                  shader.updateUniforms?.(
+                    mesh.material as THREE.Material,
+                    guiParamValues
+                  );
+                });
+              });
+          } else if (param.type === "color") {
+            shaderGuiControllerRef
+              .current!.addColor(guiParamValues, param.name)
+              .name(
+                param.name
+                  .replace(/([A-Z])/g, " $1")
+                  .replace(/^./, (s) => s.toUpperCase())
+              )
+              .onChange((v: string) => {
+                guiParamValues[param.name] = v;
+                meshes.forEach((mesh) => {
+                  shader.updateUniforms?.(
+                    mesh.material as THREE.Material,
+                    guiParamValues
+                  );
+                });
+              });
+          } else if (param.type === "boolean") {
+            shaderGuiControllerRef
+              .current!.add(guiParamValues, param.name)
+              .name(
+                param.name
+                  .replace(/([A-Z])/g, " $1")
+                  .replace(/^./, (s) => s.toUpperCase())
+              )
+              .onChange((v: boolean) => {
+                guiParamValues[param.name] = v;
+                meshes.forEach((mesh) => {
+                  shader.updateUniforms?.(
+                    mesh.material as THREE.Material,
+                    guiParamValues
+                  );
+                });
+              });
+          }
+        });
+      }
+
+      console.log(`Applied shader: ${shader.name}`);
+    };
+
+    // Expose applyShader to ref for use outside useEffect
+    applyShaderRef.current = applyShader;
+
+    // Add shader dropdown (dev only)
+    if (shaderFolder) {
+      shaderFolder
+        .add(shaderParams, "shader", shaderOptions)
+        .name("Shader")
+        .onChange((shaderId: string) => {
+          applyShader(shaderId);
+        });
+
+      shaderGuiControllerRef.current = shaderFolder;
+      shaderFolder.open();
+    }
+
+    // Material folder (will be populated after model loads) - kept for legacy compatibility (dev only)
+    const materialFolder = gui?.addFolder("Material (Legacy)") ?? null;
     const materialParams = {
       roughness: 0.7,
       metalness: 0.0,
@@ -582,14 +1068,14 @@ export default function Home() {
     let currentMaterial: THREE.MeshStandardMaterial | null = null;
 
     // -------------------------------------------------------------------------
-    // Create Brush Cursor (ring that always faces the camera - billboard style)
+    // Create Brush Cursor (filled circle that shows brush color preview)
     // -------------------------------------------------------------------------
-    // Use RingGeometry for a flat circle outline that can billboard toward camera
-    const cursorGeometry = new THREE.RingGeometry(0.045, 0.05, 32);
+    // Use CircleGeometry for a filled circle that shows brush color
+    const cursorGeometry = new THREE.CircleGeometry(0.05, 32);
     const cursorMaterial = new THREE.MeshBasicMaterial({
       color: new THREE.Color(DEFAULT_BRUSH.color),
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.5, // Semi-transparent to preview color
       side: THREE.DoubleSide, // Visible from both sides
       depthTest: false, // Always render on top
       depthWrite: false,
@@ -599,18 +1085,48 @@ export default function Home() {
     brushCursor.renderOrder = 999; // Render last (on top)
     scene.add(brushCursor);
     brushCursorRef.current = brushCursor;
-    
+
+    // Also create an outline ring for better visibility
+    const outlineGeometry = new THREE.RingGeometry(0.048, 0.052, 32);
+    const outlineMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const cursorOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+    cursorOutline.renderOrder = 1000; // Render after fill
+    brushCursor.add(cursorOutline); // Add as child so it moves with cursor
+
+    // Smooth cursor position tracking
+    const cursorTargetPos = new THREE.Vector3();
+    const cursorCurrentPos = new THREE.Vector3();
+    const cursorLerpSpeed = 0.35; // How fast cursor catches up (0-1, higher = faster)
+    let cursorInitialized = false;
+
     // Function to update brush cursor size and color
     const updateBrushCursor = (radius: number, color: string) => {
       // Scale based on brush radius (convert from UV pixels to world units)
       // Approximate: brush radius in pixels / canvas size * model scale
       const worldRadius = (radius / PAINT_CANVAS_SIZE) * 3; // Approximate world scale
-      brushCursor.scale.setScalar(worldRadius / 0.05); // 0.05 is base ring outer radius
-      
-      // Update color
+      brushCursor.scale.setScalar(worldRadius / 0.05); // 0.05 is base circle radius
+
+      // Update fill color
       (brushCursor.material as THREE.MeshBasicMaterial).color.set(color);
+
+      // Update outline to contrast with fill color
+      // Use white outline for dark colors, dark outline for light colors
+      const brushColor = new THREE.Color(color);
+      const luminance =
+        0.299 * brushColor.r + 0.587 * brushColor.g + 0.114 * brushColor.b;
+      const outlineColor = luminance > 0.5 ? 0x333333 : 0xffffff;
+      (cursorOutline.material as THREE.MeshBasicMaterial).color.setHex(
+        outlineColor
+      );
     };
-    
+
     // Function to make cursor face the camera (billboard)
     const updateCursorBillboard = () => {
       const cursor = brushCursorRef.current;
@@ -618,6 +1134,17 @@ export default function Home() {
       if (cursor && cam && cursor.visible) {
         // Make the cursor face the camera
         cursor.quaternion.copy(cam.quaternion);
+      }
+    };
+
+    // Smooth cursor position update (called in animation loop)
+    const updateCursorSmooth = () => {
+      const cursor = brushCursorRef.current;
+      if (cursor && cursor.visible && cursorInitialized) {
+        // Lerp current position toward target
+        cursorCurrentPos.lerp(cursorTargetPos, cursorLerpSpeed);
+        cursor.position.copy(cursorCurrentPos);
+        updateCursorBillboard();
       }
     };
 
@@ -631,11 +1158,19 @@ export default function Home() {
 
     const paintCtx = paintCanvas.getContext("2d");
     if (paintCtx) {
-      // Fill with base color
+      // Fill with base color (fully opaque for visibility)
       paintCtx.fillStyle = BASE_COLOR;
       paintCtx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
       paintCtxRef.current = paintCtx;
     }
+
+    // Separate array to track paint thickness (not using texture alpha)
+    // This allows underpainting effect without making the texture transparent
+    const thicknessMap = new Float32Array(
+      PAINT_CANVAS_SIZE * PAINT_CANVAS_SIZE
+    );
+    thicknessMap.fill(0); // Start with no paint
+    thicknessMapRef.current = thicknessMap;
 
     // Create texture from canvas
     const paintTexture = new THREE.CanvasTexture(paintCanvas);
@@ -652,7 +1187,7 @@ export default function Home() {
     const loader = new GLTFLoader();
 
     loader.load(
-      MODEL_PATH,
+      selectedModel.path,
       (gltf) => {
         const model = gltf.scene;
 
@@ -678,7 +1213,7 @@ export default function Home() {
         // Store all paintable meshes for raycasting
         const paintableMeshes: THREE.Mesh[] = [];
 
-        // Apply paint texture to ALL meshes in the model while PRESERVING original material properties
+        // First pass: collect meshes and store original material properties
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             const originalMaterial =
@@ -696,46 +1231,14 @@ export default function Home() {
               metalness: originalMaterial.metalness,
             });
 
-            // Create new material optimized for Lambert-like shading
-            // Lower metalness + higher roughness = more diffuse/Lambert response
-            const newMaterial = new THREE.MeshStandardMaterial({
-              // Use paint texture as the base color map
-              map: paintTexture,
-
-              // Preserve normal map from original for surface detail
+            // Store original material properties for shader system
+            originalMaterialPropsRef.current.set(child, {
               normalMap: originalMaterial.normalMap || null,
-              normalScale:
-                originalMaterial.normalScale?.clone() ||
-                new THREE.Vector2(1, 1),
-
-              // For Lambert-like effect: high roughness, low metalness
-              // This makes the surface respond more to light direction (normals)
               roughnessMap: originalMaterial.roughnessMap || null,
-              roughness: materialParams.roughness, // Higher = more diffuse/matte
-
               metalnessMap: originalMaterial.metalnessMap || null,
-              metalness: materialParams.metalness, // Lower = more Lambert-like
-
-              // Preserve ambient occlusion map
               aoMap: originalMaterial.aoMap || null,
-              aoMapIntensity: originalMaterial.aoMapIntensity ?? 1.0,
-
-              // Preserve bump map if no normal map
-              bumpMap: originalMaterial.bumpMap || null,
-              bumpScale: originalMaterial.bumpScale ?? 1.0,
-
-              // Preserve emissive properties
-              emissive:
-                originalMaterial.emissive?.clone() || new THREE.Color(0x000000),
               emissiveMap: originalMaterial.emissiveMap || null,
-              emissiveIntensity: originalMaterial.emissiveIntensity ?? 1.0,
-
-              // Environment map intensity for subtle reflections
-              envMapIntensity: materialParams.envMapIntensity,
-              side: originalMaterial.side ?? THREE.FrontSide,
-
-              // Flat shading can enhance the geometric feel (optional)
-              flatShading: false,
+              bumpMap: originalMaterial.bumpMap || null,
             });
 
             // Copy UV transform if the original texture had one
@@ -746,47 +1249,156 @@ export default function Home() {
               paintTexture.center.copy(originalMaterial.map.center);
             }
 
-            child.material = newMaterial;
-            currentMaterial = newMaterial; // Store for GUI updates
             paintableMeshes.push(child);
+
+            // Build BVH for fast raycasting
+            if (child.geometry) {
+              child.geometry.computeBoundsTree();
+            }
           }
         });
 
-        // Setup material GUI controls after model loads
-        materialFolder
-          .add(materialParams, "roughness", 0, 1, 0.01)
-          .name("Roughness")
-          .onChange((v: number) => {
-            paintableMeshes.forEach((mesh) => {
-              (mesh.material as THREE.MeshStandardMaterial).roughness = v;
-            });
+        // Store paintable meshes ref for shader system
+        paintableMeshesRef.current = paintableMeshes;
+
+        // Apply default shader using the shader system
+        const defaultShader = getShaderById(DEFAULT_SHADER_ID);
+        if (defaultShader) {
+          paintableMeshes.forEach((mesh) => {
+            const meshProps = originalMaterialPropsRef.current.get(mesh);
+            const config: ShaderConfig = {
+              paintTexture,
+              normalMap: meshProps?.normalMap || null,
+              roughnessMap: meshProps?.roughnessMap || null,
+              metalnessMap: meshProps?.metalnessMap || null,
+              aoMap: meshProps?.aoMap || null,
+              emissiveMap: meshProps?.emissiveMap || null,
+              bumpMap: meshProps?.bumpMap || null,
+              envMap: null,
+            };
+
+            const newMat = defaultShader.createMaterial(config);
+            newMat.transparent = true;
+            mesh.material = newMat;
           });
-        materialFolder
-          .add(materialParams, "metalness", 0, 1, 0.01)
-          .name("Metalness")
-          .onChange((v: number) => {
-            paintableMeshes.forEach((mesh) => {
-              (mesh.material as THREE.MeshStandardMaterial).metalness = v;
+
+          // Initialize shader config ref
+          if (paintableMeshes.length > 0) {
+            const firstMeshProps = originalMaterialPropsRef.current.get(
+              paintableMeshes[0]
+            );
+            shaderConfigRef.current = {
+              paintTexture,
+              normalMap: firstMeshProps?.normalMap || null,
+              roughnessMap: firstMeshProps?.roughnessMap || null,
+              metalnessMap: firstMeshProps?.metalnessMap || null,
+              aoMap: firstMeshProps?.aoMap || null,
+              emissiveMap: firstMeshProps?.emissiveMap || null,
+              bumpMap: firstMeshProps?.bumpMap || null,
+              envMap: null,
+            };
+          }
+
+          // Add default shader GUI params
+          if (
+            shaderGuiControllerRef.current &&
+            defaultShader.guiParams.length > 0
+          ) {
+            const guiParamValues: Record<string, any> = {};
+            defaultShader.guiParams.forEach((param) => {
+              guiParamValues[param.name] = param.default;
             });
-          });
-        materialFolder
-          .add(materialParams, "normalScale", 0, 3, 0.01)
-          .name("Normal Strength")
-          .onChange((v: number) => {
-            paintableMeshes.forEach((mesh) => {
-              const mat = mesh.material as THREE.MeshStandardMaterial;
-              if (mat.normalScale) mat.normalScale.set(v, v);
+
+            defaultShader.guiParams.forEach((param) => {
+              if (param.type === "number") {
+                shaderGuiControllerRef
+                  .current!.add(
+                    guiParamValues,
+                    param.name,
+                    param.min,
+                    param.max,
+                    param.step
+                  )
+                  .name(
+                    param.name
+                      .replace(/([A-Z])/g, " $1")
+                      .replace(/^./, (s) => s.toUpperCase())
+                  )
+                  .onChange((v: number) => {
+                    guiParamValues[param.name] = v;
+                    paintableMeshes.forEach((mesh) => {
+                      defaultShader.updateUniforms?.(
+                        mesh.material as THREE.Material,
+                        guiParamValues
+                      );
+                    });
+                  });
+              } else if (param.type === "color") {
+                shaderGuiControllerRef
+                  .current!.addColor(guiParamValues, param.name)
+                  .name(
+                    param.name
+                      .replace(/([A-Z])/g, " $1")
+                      .replace(/^./, (s) => s.toUpperCase())
+                  )
+                  .onChange((v: string) => {
+                    guiParamValues[param.name] = v;
+                    paintableMeshes.forEach((mesh) => {
+                      defaultShader.updateUniforms?.(
+                        mesh.material as THREE.Material,
+                        guiParamValues
+                      );
+                    });
+                  });
+              }
             });
-          });
-        materialFolder
-          .add(materialParams, "envMapIntensity", 0, 2, 0.01)
-          .name("Env Reflection")
-          .onChange((v: number) => {
-            paintableMeshes.forEach((mesh) => {
-              (mesh.material as THREE.MeshStandardMaterial).envMapIntensity = v;
+          }
+        }
+
+        // Setup legacy material GUI controls (only works with standard shader)
+        if (materialFolder) {
+          materialFolder
+            .add(materialParams, "roughness", 0, 1, 0.01)
+            .name("Roughness")
+            .onChange((v: number) => {
+              if (currentShaderIdRef.current !== "standard-pbr") return;
+              paintableMeshes.forEach((mesh) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.roughness !== undefined) mat.roughness = v;
+              });
             });
-          });
-        materialFolder.open();
+          materialFolder
+            .add(materialParams, "metalness", 0, 1, 0.01)
+            .name("Metalness")
+            .onChange((v: number) => {
+              if (currentShaderIdRef.current !== "standard-pbr") return;
+              paintableMeshes.forEach((mesh) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.metalness !== undefined) mat.metalness = v;
+              });
+            });
+          materialFolder
+            .add(materialParams, "normalScale", 0, 3, 0.01)
+            .name("Normal Strength")
+            .onChange((v: number) => {
+              if (currentShaderIdRef.current !== "standard-pbr") return;
+              paintableMeshes.forEach((mesh) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.normalScale) mat.normalScale.set(v, v);
+              });
+            });
+          materialFolder
+            .add(materialParams, "envMapIntensity", 0, 2, 0.01)
+            .name("Env Reflection")
+            .onChange((v: number) => {
+              if (currentShaderIdRef.current !== "standard-pbr") return;
+              paintableMeshes.forEach((mesh) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.envMapIntensity !== undefined) mat.envMapIntensity = v;
+              });
+            });
+          materialFolder.close(); // Close by default, shader folder is primary
+        }
 
         // Store the first mesh for raycasting (or we could store all)
         if (paintableMeshes.length > 0) {
@@ -796,38 +1408,48 @@ export default function Home() {
         // Store model reference for raycasting against all meshes
         (model as any).__paintableMeshes = paintableMeshes;
 
+        // Store model reference for animation
+        modelRef = model;
+
         scene.add(model);
-        
+
         // GSAP fade-in animation for the model
         // Start with opacity 0 and scale slightly smaller
         paintableMeshes.forEach((mesh) => {
-          const mat = mesh.material as THREE.MeshStandardMaterial;
+          const mat = mesh.material as THREE.Material;
           mat.transparent = true;
-          mat.opacity = 0;
+          (mat as any).opacity = 0;
         });
         model.scale.setScalar(scale * 0.9); // Start slightly smaller
-        
+
         // Animate opacity and scale
         const fadeInState = { opacity: 0, scale: scale * 0.9 };
         gsap.to(fadeInState, {
           opacity: 1,
           scale: scale,
           duration: 0.8,
-          ease: 'power2.out',
+          ease: "power2.out",
           onUpdate: () => {
             paintableMeshes.forEach((mesh) => {
-              (mesh.material as THREE.MeshStandardMaterial).opacity = fadeInState.opacity;
+              const mat = mesh.material as THREE.Material;
+              (mat as any).opacity = fadeInState.opacity;
+
+              // For ShaderMaterials, also update the uniform if it exists
+              if ((mat as THREE.ShaderMaterial).uniforms?.opacity) {
+                (mat as THREE.ShaderMaterial).uniforms.opacity.value =
+                  fadeInState.opacity;
+              }
             });
             model.scale.setScalar(fadeInState.scale);
           },
           onComplete: () => {
             // Optionally disable transparency after fade completes for better performance
             // paintableMeshes.forEach((mesh) => {
-            //   (mesh.material as THREE.MeshStandardMaterial).transparent = false;
+            //   (mesh.material as THREE.Material).transparent = false;
             // });
-          }
+          },
         });
-        
+
         setIsLoading(false);
 
         // Update controls target to model center
@@ -854,6 +1476,13 @@ export default function Home() {
     // -------------------------------------------------------------------------
     const animate = () => {
       controls.update();
+      updateCursorSmooth(); // Smooth cursor interpolation
+
+      // Spin model if enabled (uses React ref for state)
+      if (animationRef.current.spin && modelRef) {
+        modelRef.rotation.y += 0.01 * animationRef.current.spinSpeed;
+      }
+
       renderer.render(scene, camera);
     };
     renderer.setAnimationLoop(animate);
@@ -880,48 +1509,160 @@ export default function Home() {
 
     /**
      * Paint at the given UV coordinates on the paint canvas.
-     * UV coordinates range from 0-1, we convert to pixel coordinates.
-     * Y is inverted because UV origin is bottom-left, but canvas origin is top-left.
+     * OPTIMIZED VERSION with cached values and squared distance checks.
      *
-     * Note: Some models have UVs outside 0-1 range (tiled/repeating textures).
-     * We use modulo to wrap them back into the valid range.
+     * UNDERPAINTING EFFECT:
+     * Simulates real paint behavior where underlying layers show through.
      */
+
+    // Cache for brush color parsing (avoid re-parsing same color)
+    let cachedColorHex = "";
+    let cachedColorRgb = { r: 0, g: 0, b: 0 };
+
     const paintAtUV = (uv: THREE.Vector2) => {
       const ctx = paintCtxRef.current;
       const texture = paintTextureRef.current;
-      if (!ctx || !texture) return;
+      const thicknessMap = thicknessMapRef.current;
+      if (!ctx || !texture || !thicknessMap) return;
 
       // Wrap UV coordinates to 0-1 range using modulo
-      // This handles models with UVs outside the standard range
       let u = uv.x % 1;
       let v = uv.y % 1;
-
-      // Handle negative values (JS modulo can return negative)
       if (u < 0) u += 1;
       if (v < 0) v += 1;
 
       // Convert UV coordinates (0-1) to pixel coordinates
       const px = u * PAINT_CANVAS_SIZE;
-      // Invert Y: UV's Y=0 is at bottom, but canvas Y=0 is at top
       const py = (1 - v) * PAINT_CANVAS_SIZE;
 
       const brush = brushRef.current;
+      const radius = brush.radius;
+      const radiusSq = radius * radius; // Use squared for faster comparison
 
-      // Convert hex color to rgba with opacity
-      const hexToRgba = (hex: string, opacity: number): string => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-      };
+      // Parse brush color (cached)
+      if (brush.color !== cachedColorHex) {
+        cachedColorHex = brush.color;
+        cachedColorRgb = {
+          r: parseInt(brush.color.slice(1, 3), 16),
+          g: parseInt(brush.color.slice(3, 5), 16),
+          b: parseInt(brush.color.slice(5, 7), 16),
+        };
+      }
+      const brushR = cachedColorRgb.r;
+      const brushG = cachedColorRgb.g;
+      const brushB = cachedColorRgb.b;
 
-      // Draw brush stroke (circle) at the UV position
-      ctx.fillStyle = hexToRgba(brush.color, brush.opacity);
-      ctx.beginPath();
-      ctx.arc(px, py, brush.radius, 0, Math.PI * 2);
-      ctx.fill();
+      // Get the area we'll be painting on
+      const x = Math.floor(px - radius);
+      const y = Math.floor(py - radius);
+      const size = Math.ceil(radius * 2);
 
-      // Mark texture for update in the next render frame
+      // Clamp to canvas bounds
+      const sx = Math.max(0, x);
+      const sy = Math.max(0, y);
+      const ex = Math.min(PAINT_CANVAS_SIZE, x + size);
+      const ey = Math.min(PAINT_CANVAS_SIZE, y + size);
+      const width = ex - sx;
+      const height = ey - sy;
+
+      if (width <= 0 || height <= 0) return;
+
+      // Read existing pixels from the canvas
+      const imageData = ctx.getImageData(sx, sy, width, height);
+      const pixels = imageData.data;
+
+      // Underpainting parameters
+      const UNDERCOAT_STRENGTH = 0.4;
+      const MAX_COVERAGE = 0.85;
+      const brushOpacity = brush.opacity * MAX_COVERAGE;
+
+      // Blend new color with existing pixels within the brush circle
+      for (let dy = 0; dy < height; dy++) {
+        const worldY = sy + dy;
+        const distY = worldY - py;
+        const distYSq = distY * distY;
+        const rowOffset = dy * width * 4;
+        const thicknessRowOffset = worldY * PAINT_CANVAS_SIZE;
+
+        for (let dx = 0; dx < width; dx++) {
+          const worldX = sx + dx;
+          const distX = worldX - px;
+          const distSq = distX * distX + distYSq;
+
+          // Only paint within the brush radius (using squared distance)
+          if (distSq <= radiusSq) {
+            // Edge falloff based on hardness
+            // hardness 0 = very soft gaussian-like falloff
+            // hardness 1 = hard edge with minimal falloff
+            const distRatio = Math.sqrt(distSq) / radius;
+            const hardness = brush.hardness;
+
+            // Compute falloff: soft brushes fade gradually, hard brushes stay solid longer
+            let edgeFalloff: number;
+            if (hardness >= 0.95) {
+              // Nearly hard edge
+              edgeFalloff = distRatio < 0.9 ? 1 : (1 - distRatio) * 10;
+            } else {
+              // Soft to medium: use power curve
+              // Higher hardness = steeper curve = harder edge
+              const softness = 1 - hardness;
+              const curve = 0.5 + softness * 2; // 0.5 to 2.5
+              edgeFalloff = Math.pow(1 - distRatio, curve);
+            }
+
+            const strokeStrength = brushOpacity * edgeFalloff;
+
+            const idx = rowOffset + dx * 4;
+            const thicknessIdx = thicknessRowOffset + worldX;
+
+            // Get existing color (the undercoat)
+            const underR = pixels[idx];
+            const underG = pixels[idx + 1];
+            const underB = pixels[idx + 2];
+
+            // Get paint thickness from separate map (0-1 range)
+            const existingThickness = thicknessMap[thicknessIdx];
+            const undercoatBleed =
+              UNDERCOAT_STRENGTH *
+              (existingThickness > 1 ? 1 : existingThickness);
+
+            // Subtractive-ish color mixing (like real paint)
+            const bleedComp = 1 - undercoatBleed;
+            const bleed07 = undercoatBleed * 0.7;
+            const bleed03 = undercoatBleed * 0.3;
+
+            const mixedR =
+              (brushR * bleedComp +
+                underR * bleed07 +
+                (brushR < underR ? brushR : underR) * bleed03) |
+              0;
+            const mixedG =
+              (brushG * bleedComp +
+                underG * bleed07 +
+                (brushG < underG ? brushG : underG) * bleed03) |
+              0;
+            const mixedB =
+              (brushB * bleedComp +
+                underB * bleed07 +
+                (brushB < underB ? brushB : underB) * bleed03) |
+              0;
+
+            // Blend the mixed color onto the canvas
+            pixels[idx] = (underR + (mixedR - underR) * strokeStrength) | 0;
+            pixels[idx + 1] = (underG + (mixedG - underG) * strokeStrength) | 0;
+            pixels[idx + 2] = (underB + (mixedB - underB) * strokeStrength) | 0;
+            pixels[idx + 3] = 255;
+
+            // Accumulate paint thickness
+            thicknessMap[thicknessIdx] += strokeStrength * 0.3;
+          }
+        }
+      }
+
+      // Write blended pixels back to canvas
+      ctx.putImageData(imageData, sx, sy);
+
+      // Mark texture for update
       texture.needsUpdate = true;
     };
 
@@ -934,8 +1675,10 @@ export default function Home() {
       point: THREE.Vector3;
       normal: THREE.Vector3;
     }
-    
-    const raycast = (event: PointerEvent | MouseEvent): RaycastResult | null => {
+
+    const raycast = (
+      event: PointerEvent | MouseEvent
+    ): RaycastResult | null => {
       const currentScene = sceneRef.current;
       const camera = cameraRef.current;
       if (!currentScene || !camera || !container) return null;
@@ -949,6 +1692,9 @@ export default function Home() {
       mouseRef.current.set(x, y);
       raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
+      // Enable firstHitOnly for BVH optimization (we only need the first hit)
+      (raycasterRef.current as any).firstHitOnly = true;
+
       // Check for intersections with ALL objects in the scene
       const intersects = raycasterRef.current.intersectObjects(
         currentScene.children,
@@ -959,12 +1705,18 @@ export default function Home() {
       for (const intersect of intersects) {
         // Skip the brush cursor itself
         if (intersect.object === brushCursorRef.current) continue;
-        
-        if (intersect.uv && intersect.object instanceof THREE.Mesh && intersect.face) {
+
+        if (
+          intersect.uv &&
+          intersect.object instanceof THREE.Mesh &&
+          intersect.face
+        ) {
           return {
             uv: intersect.uv.clone(),
             point: intersect.point.clone(),
-            normal: intersect.face.normal.clone().transformDirection(intersect.object.matrixWorld),
+            normal: intersect.face.normal
+              .clone()
+              .transformDirection(intersect.object.matrixWorld),
           };
         }
       }
@@ -1002,24 +1754,28 @@ export default function Home() {
      */
     const handlePointerMove = (event: PointerEvent) => {
       const result = raycast(event);
-      
+
       if (result) {
-        // Update brush cursor position and orientation
+        // Update brush cursor target position (will be smoothly interpolated)
         const cursor = brushCursorRef.current;
         if (cursor) {
           cursor.visible = true;
-          cursor.position.copy(result.point);
-          
-          // Add small offset along normal to prevent z-fighting
-          cursor.position.addScaledVector(result.normal, 0.01);
-          
-          // Make the cursor face the camera (billboard style)
-          updateCursorBillboard();
-          
+
+          // Set target position with small offset along normal
+          cursorTargetPos.copy(result.point);
+          cursorTargetPos.addScaledVector(result.normal, 0.01);
+
+          // Initialize current position on first hit to avoid lerping from origin
+          if (!cursorInitialized) {
+            cursorCurrentPos.copy(cursorTargetPos);
+            cursor.position.copy(cursorCurrentPos);
+            cursorInitialized = true;
+          }
+
           // Update cursor appearance based on current brush settings
           updateBrushCursor(brushRef.current.radius, brushRef.current.color);
         }
-        
+
         // Paint if in painting mode
         if (isPaintingRef.current) {
           paintAtUV(result.uv);
@@ -1029,10 +1785,11 @@ export default function Home() {
         const cursor = brushCursorRef.current;
         if (cursor) {
           cursor.visible = false;
+          cursorInitialized = false; // Reset so next hit snaps immediately
         }
       }
     };
-    
+
     /**
      * Handle mouse leaving the canvas - hide cursor.
      */
@@ -1157,7 +1914,7 @@ export default function Home() {
       canvas.removeEventListener("contextmenu", handleContextMenu);
 
       // Dispose of lil-gui
-      gui.destroy();
+      gui?.destroy();
 
       // Dispose of controls
       controls.dispose();
@@ -1180,7 +1937,7 @@ export default function Home() {
       // Dispose of renderer
       renderer.dispose();
     };
-  }, []);
+  }, [selectedModel]);
 
   // ============================================================================
   // BRUSH CHANGE HANDLER
@@ -1197,11 +1954,18 @@ export default function Home() {
   const handleClear = useCallback(() => {
     const ctx = paintCtxRef.current;
     const texture = paintTextureRef.current;
+    const thicknessMap = thicknessMapRef.current;
     if (!ctx || !texture) return;
 
-    // Fill paint canvas with base color
-    ctx.fillStyle = BASE_COLOR;
+    // Fill paint canvas with shader-specific base color
+    const baseColor = getBaseColorForShader(currentShaderIdRef.current);
+    ctx.fillStyle = baseColor;
     ctx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+
+    // Reset thickness map
+    if (thicknessMap) {
+      thicknessMap.fill(0);
+    }
 
     // Mark texture for update
     texture.needsUpdate = true;
@@ -1229,6 +1993,28 @@ export default function Home() {
   }, []);
 
   // ============================================================================
+  // SHADER CHANGE HANDLER
+  // ============================================================================
+
+  const handleShaderChange = useCallback((shaderId: string) => {
+    setCurrentShader(shaderId);
+    applyShaderRef.current?.(shaderId);
+    // Paint is preserved - no canvas reset here
+  }, []);
+
+  // ============================================================================
+  // BACKGROUND COLOR CHANGE HANDLER
+  // ============================================================================
+
+  const handleBackgroundChange = useCallback((color: string) => {
+    setBackgroundColor(color);
+    const renderer = rendererRef.current;
+    if (renderer) {
+      renderer.setClearColor(color, 1);
+    }
+  }, []);
+
+  // ============================================================================
   // RENDER
   // ============================================================================
 
@@ -1247,19 +2033,9 @@ export default function Home() {
           <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
             <div className="text-center">
               <div className="w-12 h-12 border-4 border-slate-600 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-slate-300">Loading 3D Model...</p>
+              <p className="text-slate-300">Loading ...</p>
+              {/* <p className="text-slate-300">Loading {selectedModel.name}...</p> */}
             </div>
-          </div>
-        )}
-
-        {/* Instructions Overlay */}
-        {!isLoading && (
-          <div className="absolute bottom-4 left-4 bg-slate-900/80 backdrop-blur-sm rounded-lg px-4 py-2 text-sm text-slate-300">
-            <span className="text-slate-400">Paint:</span> Left click
-            &nbsp;|&nbsp;
-            <span className="text-slate-400">Orbit:</span> Right drag / Arrow
-            keys &nbsp;|&nbsp;
-            <span className="text-slate-400">Zoom:</span> Scroll wheel
           </div>
         )}
       </div>
@@ -1269,8 +2045,17 @@ export default function Home() {
         brush={brush}
         onBrushChange={handleBrushChange}
         onClear={handleClear}
-        onShare={handleShare}
         isLoading={isLoading}
+        isOpen={isPanelOpen}
+        onToggle={() => setIsPanelOpen(!isPanelOpen)}
+        animation={animation}
+        onAnimationChange={(changes) =>
+          setAnimation((prev) => ({ ...prev, ...changes }))
+        }
+        currentShader={currentShader}
+        onShaderChange={handleShaderChange}
+        backgroundColor={backgroundColor}
+        onBackgroundChange={handleBackgroundChange}
       />
 
       {/* Share Modal */}
