@@ -48,8 +48,6 @@ import {
   getBaseColorForShader,
   CursorMode,
   HOTKEYS,
-  BrushType,
-  BRUSH_PRESETS,
 } from "~/constants";
 import type {
   BrushState,
@@ -61,6 +59,9 @@ import type {
 import { BottomToolbar, useBrush } from "~/components/BottomToolbar";
 import { TopRightToolbar } from "~/components/TopRightToolbar";
 import { ShareModal } from "~/components/ShareModal";
+
+// Hooks
+import { useKeyboardShortcuts } from "~/hooks";
 
 // ============================================================================
 // META FUNCTION
@@ -1468,88 +1469,12 @@ export default function Home() {
       event.preventDefault();
     };
 
-    /**
-     * Keyboard handler for arrow key orbit control with GSAP smooth animation.
-     * Arrow keys rotate the camera around the model with eased lerping.
-     */
-    const ORBIT_ANGLE = 0.3; // Radians per keypress (larger for visible movement)
-    const ORBIT_DURATION = 0.5; // Animation duration in seconds
-
-    // Track if animation is in progress to prevent stacking
-    let isAnimating = false;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const camera = cameraRef.current;
-      const controls = controlsRef.current;
-      if (!camera || !controls) return;
-
-      // Prevent default arrow key scrolling
-      const orbitKeys: string[] = [
-        HOTKEYS.ORBIT_LEFT,
-        HOTKEYS.ORBIT_RIGHT,
-        HOTKEYS.ORBIT_UP,
-        HOTKEYS.ORBIT_DOWN,
-      ];
-      if (orbitKeys.includes(event.key)) {
-        event.preventDefault();
-      }
-
-      // Get current spherical coordinates relative to target
-      const offset = camera.position.clone().sub(controls.target);
-      const currentSpherical = new THREE.Spherical().setFromVector3(offset);
-
-      // Calculate target spherical coordinates
-      let targetTheta = currentSpherical.theta;
-      let targetPhi = currentSpherical.phi;
-
-      switch (event.key) {
-        case HOTKEYS.ORBIT_LEFT:
-          targetTheta += ORBIT_ANGLE;
-          break;
-        case HOTKEYS.ORBIT_RIGHT:
-          targetTheta -= ORBIT_ANGLE;
-          break;
-        case HOTKEYS.ORBIT_UP:
-          targetPhi = Math.max(0.1, targetPhi - ORBIT_ANGLE);
-          break;
-        case HOTKEYS.ORBIT_DOWN:
-          targetPhi = Math.min(Math.PI - 0.1, targetPhi + ORBIT_ANGLE);
-          break;
-        default:
-          return; // Don't process other keys
-      }
-
-      // Animate with GSAP for smooth lerped movement
-      const animState = {
-        theta: currentSpherical.theta,
-        phi: currentSpherical.phi,
-      };
-
-      gsap.to(animState, {
-        theta: targetTheta,
-        phi: targetPhi,
-        duration: ORBIT_DURATION,
-        ease: "power2.out", // Smooth easing
-        onUpdate: () => {
-          const newSpherical = new THREE.Spherical(
-            currentSpherical.radius,
-            animState.phi,
-            animState.theta
-          );
-          const newOffset = new THREE.Vector3().setFromSpherical(newSpherical);
-          camera.position.copy(controls.target).add(newOffset);
-          camera.lookAt(controls.target);
-        },
-      });
-    };
-
-    // Add event listeners
+    // Add event listeners (keyboard shortcuts handled by useKeyboardShortcuts hook)
     canvas.addEventListener("pointerdown", handlePointerDown);
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerup", handlePointerUp);
     canvas.addEventListener("pointerleave", handlePointerLeave);
     canvas.addEventListener("contextmenu", handleContextMenu);
-    window.addEventListener("keydown", handleKeyDown);
 
     // -------------------------------------------------------------------------
     // Cleanup
@@ -1563,7 +1488,6 @@ export default function Home() {
 
       // Remove event listeners
       window.removeEventListener("resize", handleResize);
-      window.removeEventListener("keydown", handleKeyDown);
       canvas.removeEventListener("pointerdown", handlePointerDown);
       canvas.removeEventListener("pointermove", handlePointerMove);
       canvas.removeEventListener("pointerup", handlePointerUp);
@@ -1652,94 +1576,21 @@ export default function Home() {
   }, []);
 
   // ============================================================================
-  // KEYBOARD SHORTCUTS FOR CURSOR MODE AND BRUSH
+  // KEYBOARD SHORTCUTS (handled by useKeyboardShortcuts hook)
   // ============================================================================
 
-  useEffect(() => {
-    const handleModeKeyDown = (event: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
-      if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
-
-      // Handle Cmd+Z / Ctrl+Z for undo, Cmd+Shift+Z / Ctrl+Shift+Z for redo
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        const ctx = paintCtxRef.current;
-        const texture = paintTextureRef.current;
-        const thicknessMap = thicknessMapRef.current;
-
-        if (!ctx || !texture || !thicknessMap) return;
-
-        if (event.shiftKey) {
-          // Redo: Cmd+Shift+Z
-          const redoHistory = redoHistoryRef.current;
-          if (redoHistory.length > 0) {
-            // Save current state to undo before redo
-            const currentImageData = ctx.getImageData(
-              0,
-              0,
-              PAINT_CANVAS_SIZE,
-              PAINT_CANVAS_SIZE
-            );
-            const currentThickness = new Float32Array(thicknessMap);
-            undoHistoryRef.current.push({
-              imageData: currentImageData,
-              thicknessMap: currentThickness,
-            });
-
-            // Restore redo state
-            const redoState = redoHistory.pop()!;
-            ctx.putImageData(redoState.imageData, 0, 0);
-            thicknessMap.set(redoState.thicknessMap);
-            texture.needsUpdate = true;
-          }
-        } else {
-          // Undo: Cmd+Z
-          const undoHistory = undoHistoryRef.current;
-          if (undoHistory.length > 0) {
-            // Save current state to redo before undo
-            const currentImageData = ctx.getImageData(
-              0,
-              0,
-              PAINT_CANVAS_SIZE,
-              PAINT_CANVAS_SIZE
-            );
-            const currentThickness = new Float32Array(thicknessMap);
-            redoHistoryRef.current.push({
-              imageData: currentImageData,
-              thicknessMap: currentThickness,
-            });
-
-            // Restore undo state
-            const undoState = undoHistory.pop()!;
-            ctx.putImageData(undoState.imageData, 0, 0);
-            thicknessMap.set(undoState.thicknessMap);
-            texture.needsUpdate = true;
-          }
-        }
-        return;
-      }
-
-      const key = event.key.toLowerCase();
-
-      if (key === HOTKEYS.CURSOR_MOVE.toLowerCase()) {
-        setCursorMode(CursorMode.Move);
-      } else if (key === HOTKEYS.CURSOR_ROTATE.toLowerCase()) {
-        setCursorMode(CursorMode.Rotate);
-      } else if (key === HOTKEYS.BRUSH_AIRBRUSH) {
-        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Airbrush] });
-      } else if (key === HOTKEYS.BRUSH_PAINTBRUSH) {
-        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
-      }
-    };
-
-    window.addEventListener("keydown", handleModeKeyDown);
-    return () => window.removeEventListener("keydown", handleModeKeyDown);
-  }, [handleBrushChange]);
+  useKeyboardShortcuts({
+    cameraRef,
+    controlsRef,
+    paintCtxRef,
+    paintTextureRef,
+    thicknessMapRef,
+    undoHistoryRef,
+    redoHistoryRef,
+    canvasSize: PAINT_CANVAS_SIZE,
+    setCursorMode,
+    handleBrushChange,
+  });
 
   // ============================================================================
   // RENDER
