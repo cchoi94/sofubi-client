@@ -706,17 +706,16 @@ export default function Home() {
     controls.maxDistance = 8;
     controls.target.set(0, 0, 0);
 
-    // Configure controls: RIGHT mouse button for orbit, middle for pan
+    // Configure controls: RIGHT mouse button for orbit, middle for zoom
     // This leaves left mouse button free for painting
     controls.mouseButtons = {
       LEFT: null as any, // Disable left click for orbit (we use it for painting)
-      MIDDLE: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.ROTATE,
     };
 
-    // Enable keyboard controls for arrow keys
-    controls.enablePan = true;
-    controls.screenSpacePanning = false;
+    // Disable panning to keep model centered
+    controls.enablePan = false;
 
     controlsRef.current = controls;
 
