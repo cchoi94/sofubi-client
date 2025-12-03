@@ -16,75 +16,49 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Route } from "./+types/home";
-
-// Utility for class names
-import { cn } from "../lib/utils";
-
-// Icons
-import {
-  ChevronLeft,
-  ChevronRight,
-  RotateCw,
-  Trash2,
-  Palette,
-  Circle,
-  Paintbrush,
-  Sparkles,
-  X,
-  Download,
-} from "lucide-react";
-
-// UI Components
-import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { Slider } from "~/components/ui/slider";
-import { Switch } from "~/components/ui/switch";
-import { Label } from "~/components/ui/label";
-import { Separator } from "~/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-} from "~/components/ui/dialog";
-import {
-  Card,
-  CardContent,
-  CardTitle,
-  CardDescription,
-} from "~/components/ui/card";
-
-// three.js imports
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-
-// BVH for fast raycasting
 import {
   computeBoundsTree,
   disposeBoundsTree,
   acceleratedRaycast,
 } from "three-mesh-bvh";
+import gsap from "gsap";
+import GUI from "lil-gui";
 
-// Extend THREE.Mesh prototype with BVH methods
+// Extend THREE.js with BVH methods
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-// Animation and GUI
-import gsap from "gsap";
-import GUI from "lil-gui";
-
-// Shader system
+// Shaders
 import {
   shaders,
   getShaderById,
   DEFAULT_SHADER_ID,
-  ShaderId,
-  type CustomShader,
   type ShaderConfig,
-} from "../shaders";
+} from "~/shaders";
+
+// Constants & Types
+import {
+  PAINT_CANVAS_SIZE,
+  DEFAULT_BRUSH,
+  AVAILABLE_MODELS,
+  BASE_COLOR,
+  getBaseColorForShader,
+  CursorMode,
+} from "~/constants";
+import type {
+  BrushState,
+  AnimationState,
+  ModelOption,
+} from "~/constants/types";
+
+// Components
+import { BottomToolbar } from "~/components/BottomToolbar";
+import { TopRightToolbar } from "~/components/TopRightToolbar";
+import { ShareModal } from "~/components/ShareModal";
 
 // ============================================================================
 // META FUNCTION
@@ -100,484 +74,7 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-type BrushType = "airbrush" | "paintbrush";
-
-interface BrushState {
-  type: BrushType;
-  color: string;
-  radius: number;
-  opacity: number;
-  hardness: number; // 0 = soft edges, 1 = hard edges
-}
-
-interface ShareModalProps {
-  isOpen: boolean;
-  imageUrl: string;
-  onClose: () => void;
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-// Paint canvas resolution - higher = more detail but slower
-const PAINT_CANVAS_SIZE = 2048;
-
-// Brush presets
-const BRUSH_PRESETS: Record<BrushType, Omit<BrushState, "color">> = {
-  airbrush: {
-    type: "airbrush",
-    radius: 50,
-    opacity: 1.0,
-    hardness: 0.2, // Very soft edges
-  },
-  paintbrush: {
-    type: "paintbrush",
-    radius: 16,
-    opacity: 1.0,
-    hardness: 0.8, // Harder edges
-  },
-};
-
-// Default brush settings
-const DEFAULT_BRUSH: BrushState = {
-  ...BRUSH_PRESETS.airbrush,
-  color: "#ff0000",
-};
-
-// Base color for the paint canvas - changes based on shader
-const BASE_COLOR = "#F3E9D7"; // Default warm white
-
-// Shader-specific base colors for better material appearance
-const SHADER_BASE_COLORS: Record<string, string> = {
-  [ShaderId.STANDARD]: "#F3E9D7", // Warm off-white (sofubi/vinyl look)
-  [ShaderId.PEARLESCENT]: "#E8E8EC", // Cool silver-white for chrome
-  [ShaderId.TRANSPARENT_PLASTIC]: "#D8DCE0", // Silvery white for frosted plastic
-  [ShaderId.CERAMIC]: "#FAF6F0", // Warm cream for ceramic
-  [ShaderId.METAL]: "#B8B8BC", // Zinc/zamak gray for die-cast metal
-  [ShaderId.GLASS]: "#FFFFFF", // Pure white for clear glass transmission
-};
-
-// Helper to get base color for a shader
-const getBaseColorForShader = (shaderId: string): string => {
-  return SHADER_BASE_COLORS[shaderId] || BASE_COLOR;
-};
-
-// Available 3D models
-interface ModelOption {
-  id: string;
-  name: string;
-  path: string;
-  thumbnail?: string;
-}
-
-const AVAILABLE_MODELS: ModelOption[] = [
-  { id: "godzilla", name: "Godzilla", path: "/assets/godzilla.glb" },
-  {
-    id: "king_ghidorah",
-    name: "King Ghidorah",
-    path: "/assets/king_ghidorah.glb",
-  },
-  { id: "mothra", name: "Mothra", path: "/assets/mothra.glb" },
-];
-
-// ============================================================================
-// MODEL SELECTION COMPONENT
-// ============================================================================
-
-interface ModelSelectionProps {
-  onSelectModel: (model: ModelOption) => void;
-}
-
-function ModelSelection({ onSelectModel }: ModelSelectionProps) {
-  return (
-    <div className="fixed inset-0 bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center z-50">
-      <div className="max-w-4xl w-full mx-4">
-        {/* Header */}
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-white mb-3">
-            🎨 3D Mesh Painter
-          </h1>
-          <p className="text-slate-400 text-lg">
-            Choose a model to start painting
-          </p>
-        </div>
-
-        {/* Model Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {AVAILABLE_MODELS.map((model) => (
-            <Card
-              key={model.id}
-              onClick={() => onSelectModel(model)}
-              className="group cursor-pointer p-6 hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/10"
-            >
-              {/* Model Icon/Preview Area */}
-              <div className="aspect-square bg-slate-900/50 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
-                <div className="text-6xl group-hover:scale-110 transition-transform duration-300">
-                  {model.id === "godzilla" && "🦖"}
-                  {model.id === "king_ghidorah" && "🐉"}
-                  {model.id === "mothra" && "🦋"}
-                </div>
-              </div>
-
-              <CardTitle className="text-xl group-hover:text-blue-400 transition-colors">
-                {model.name}
-              </CardTitle>
-              <CardDescription className="mt-1 group-hover:text-slate-400 transition-colors">
-                Click to paint
-              </CardDescription>
-
-              {/* Hover Glow Effect */}
-              <div className="absolute inset-0 rounded-2xl bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors pointer-events-none" />
-            </Card>
-          ))}
-        </div>
-
-        {/* Footer */}
-        <div className="text-center mt-10 text-slate-500 text-sm">
-          <p>
-            Paint directly on 3D models • Export your creations • Share with
-            friends
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// SHARE MODAL COMPONENT
-// ============================================================================
-
-function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
-  // Generate share URLs (only on client side)
-  const shareText = encodeURIComponent(
-    "Painted this 3D model in the browser 🎨"
-  );
-  const appUrl =
-    typeof window !== "undefined"
-      ? encodeURIComponent(window.location.href)
-      : "";
-  const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}&url=${appUrl}`;
-
-  const handleDownload = () => {
-    const link = document.createElement("a");
-    link.href = imageUrl;
-    link.download = "painted-model.png";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg mx-4 p-0 overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>Share Your Creation</DialogTitle>
-        </DialogHeader>
-
-        {/* Screenshot Preview */}
-        <div className="p-6 pt-0">
-          <div className="rounded-lg overflow-hidden border border-slate-600 mb-6">
-            <img
-              src={imageUrl}
-              alt="Screenshot of painted model"
-              className="w-full h-auto"
-            />
-          </div>
-
-          {/* Share Buttons */}
-          <div className="space-y-3">
-            {/* Download PNG */}
-            <Button
-              variant="success"
-              size="lg"
-              onClick={handleDownload}
-              className="w-full"
-            >
-              <Download className="w-5 h-5" />
-              Download PNG
-            </Button>
-
-            {/* Share on X (Twitter) */}
-            <a
-              href={twitterUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-950 text-white font-medium py-3 px-4 rounded-lg transition-colors border border-slate-600"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-              Share on X
-            </a>
-
-            {/* Open Instagram */}
-            <a
-              href="https://instagram.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center justify-center gap-3 bg-linear-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium py-3 px-4 rounded-lg transition-all"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-              </svg>
-              Open Instagram
-            </a>
-            <p className="text-center text-slate-400 text-sm">
-              Download the PNG first, then upload it to Instagram manually
-            </p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} className="w-full">
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ============================================================================
-// CONTROLS PANEL COMPONENT
-// ============================================================================
-
-interface AnimationState {
-  spin: boolean;
-  spinSpeed: number;
-}
-
-interface ControlsPanelProps {
-  brush: BrushState;
-  onBrushChange: (brush: Partial<BrushState>) => void;
-  onClear: () => void;
-  isLoading: boolean;
-  isOpen: boolean;
-  onToggle: () => void;
-  animation: AnimationState;
-  onAnimationChange: (animation: Partial<AnimationState>) => void;
-  currentShader: string;
-  onShaderChange: (shaderId: string) => void;
-  backgroundColor: string;
-  onBackgroundChange: (color: string) => void;
-}
-
-function ControlsPanel({
-  brush,
-  onBrushChange,
-  onClear,
-  isLoading,
-  isOpen,
-  onToggle,
-  animation,
-  onAnimationChange,
-  currentShader,
-  onShaderChange,
-  backgroundColor,
-  onBackgroundChange,
-}: ControlsPanelProps) {
-  return (
-    <>
-      {/* Panel Container - includes both toggle button and panel */}
-      <div
-        className={cn(
-          "fixed right-0 top-0 bottom-0 z-20",
-          "transition-transform duration-200 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-64"
-        )}
-      >
-        {/* Toggle Button - attached to panel, protrudes left */}
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={onToggle}
-          className={cn(
-            "absolute top-4 -left-6.5 z-30 w-7!",
-            "bg-zinc-950/95 backdrop-blur-sm border-zinc-800",
-            "rounded-l-md rounded-r-none border-r-0 border-0 hover:bg-zinc-950/95!"
-          )}
-        >
-          {isOpen ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <ChevronLeft className="w-4 h-4" />
-          )}
-        </Button>
-
-        {/* Panel */}
-        <div
-          className={cn(
-            "h-full w-64",
-            "bg-zinc-950/95 backdrop-blur-md border-l border-zinc-800",
-            "flex flex-col"
-          )}
-        >
-          {/* Header */}
-          {/* <div className="p-4 border-b border-zinc-800">
-          <h1 className="text-sm font-medium text-white">Sofubi Painter</h1>
-        </div> */}
-
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
-            {/* Loading */}
-            {isLoading && (
-              <div className="flex items-center gap-2 text-xs text-zinc-500">
-                <div className="w-3 h-3 border border-zinc-600 border-t-white rounded-full animate-spin" />
-                Loading...
-              </div>
-            )}
-
-            {/* Shader Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Sparkles className="w-3 h-3" />
-                Material
-              </Label>
-              <div className="grid grid-cols-1 gap-1">
-                {shaders.map((shader) => (
-                  <Button
-                    key={shader.id}
-                    variant={currentShader === shader.id ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => onShaderChange(shader.id)}
-                    className={cn(
-                      "justify-start",
-                      currentShader === shader.id && "font-medium"
-                    )}
-                  >
-                    {shader.name}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Brush Type */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Paintbrush className="w-3 h-3" />
-                Brush
-              </Label>
-              <div className="grid grid-cols-2 gap-1">
-                <Button
-                  variant={brush.type === "airbrush" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => onBrushChange({ ...BRUSH_PRESETS.airbrush })}
-                  className={brush.type === "airbrush" ? "font-medium" : ""}
-                >
-                  Airbrush
-                </Button>
-                <Button
-                  variant={brush.type === "paintbrush" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => onBrushChange({ ...BRUSH_PRESETS.paintbrush })}
-                  className={brush.type === "paintbrush" ? "font-medium" : ""}
-                >
-                  Paintbrush
-                </Button>
-              </div>
-            </div>
-
-            {/* Color */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Palette className="w-3 h-3" />
-                Color
-              </Label>
-              <div className="flex flex-col gap-1">
-                <input
-                  type="color"
-                  value={brush.color}
-                  onChange={(e) => onBrushChange({ color: e.target.value })}
-                  className="w-full h-9 rounded-md cursor-pointer bg-transparent"
-                />
-                <span className="text-[10px] text-right text-zinc-500 font-mono">
-                  {brush.color.toUpperCase()}
-                </span>
-              </div>
-            </div>
-
-            {/* Size */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <Circle className="w-3 h-3" />
-                  Size
-                </Label>
-                <span className="text-xs text-zinc-500">{brush.radius}px</span>
-              </div>
-              <Slider
-                min={5}
-                max={brush.type === "airbrush" ? 150 : 100}
-                step={1}
-                value={[brush.radius]}
-                onValueChange={([value]) => onBrushChange({ radius: value })}
-              />
-            </div>
-
-            <Separator />
-
-            {/* Background Color */}
-            <div className="space-y-2">
-              <Label>Background</Label>
-              <div className="flex flex-col gap-1">
-                <input
-                  type="color"
-                  value={backgroundColor}
-                  onChange={(e) => onBackgroundChange(e.target.value)}
-                  className="w-full h-9 rounded-md cursor-pointer bg-transparent"
-                />
-                <span className="text-[10px] text-right text-zinc-500 font-mono">
-                  {backgroundColor.toUpperCase()}
-                </span>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Spin Toggle */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <RotateCw
-                    className={cn("w-3 h-3", animation.spin && "animate-spin")}
-                  />
-                  Auto Spin
-                </Label>
-                <Switch
-                  checked={animation.spin}
-                  onCheckedChange={(checked) =>
-                    onAnimationChange({ spin: checked })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="p-4 border-t border-zinc-800">
-            <Button
-              variant="secondary"
-              onClick={onClear}
-              disabled={isLoading}
-              className="w-full"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear Canvas
-            </Button>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
+// Components (ModelSelection, ShareModal, BottomToolbar) imported from ~/components
 
 // ============================================================================
 // MAIN HOME COMPONENT
@@ -592,6 +89,7 @@ export default function Home() {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
+  const modelObjRef = useRef<THREE.Object3D | null>(null); // Reference to loaded model for translation
 
   // Paint system refs
   const paintCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -603,6 +101,9 @@ export default function Home() {
 
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
+  const isDraggingModelRef = useRef<boolean>(false); // For move mode dragging
+  const dragStartMouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
+  const dragStartModelPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
   const brushRef = useRef<BrushState>({ ...DEFAULT_BRUSH });
   const thicknessMapRef = useRef<Float32Array | null>(null);
 
@@ -633,13 +134,33 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string>("");
-  const [isPanelOpen, setIsPanelOpen] = useState<boolean>(true);
   const [animation, setAnimation] = useState<AnimationState>({
     spin: false,
     spinSpeed: 0.5,
   });
   const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
-  const [backgroundColor, setBackgroundColor] = useState<string>("#1C1C22"); // slate-800
+  const [cursorMode, setCursorMode] = useState<CursorMode>(CursorMode.Rotate);
+  const [colorHistory, setColorHistory] = useState<string[]>([]);
+  const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
+
+  // Ref for cursor mode to use in event handlers
+  const cursorModeRef = useRef<CursorMode>(CursorMode.Rotate);
+
+  // Sync cursor mode with ref
+  useEffect(() => {
+    cursorModeRef.current = cursorMode;
+    // Update controls based on mode
+    const controls = controlsRef.current;
+    if (controls) {
+      if (cursorMode === CursorMode.Move) {
+        controls.enablePan = true;
+        controls.enableRotate = false;
+      } else {
+        controls.enablePan = false;
+        controls.enableRotate = true;
+      }
+    }
+  }, [cursorMode]);
 
   // Ref for applying shader from outside useEffect
   const applyShaderRef = useRef<((shaderId: string) => void) | null>(null);
@@ -678,7 +199,7 @@ export default function Home() {
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Lower pixel ratio for perf
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setClearColor(0x1e293b, 1); // slate-800
+    renderer.setClearColor(0x000000, 0); // Transparent to show dot grid
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -746,15 +267,16 @@ export default function Home() {
     controls.maxDistance = 8;
     controls.target.set(0, 0, 0);
 
-    // Configure controls: LEFT mouse button for orbit (when not on model), middle for zoom
+    // Configure controls: LEFT mouse button for orbit/pan (when not on model), middle for zoom
     controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
+      LEFT: THREE.MOUSE.ROTATE, // Will be changed to PAN when in move mode
       MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: null as any, // Disable right click orbit
+      RIGHT: null as any, // Disable right click
     };
 
-    // Disable panning to keep model centered
+    // Default to rotate mode (pan disabled)
     controls.enablePan = false;
+    controls.enableRotate = true;
 
     controlsRef.current = controls;
 
@@ -813,7 +335,7 @@ export default function Home() {
     // -------------------------------------------------------------------------
     // Animation State (for model spin) - uses React ref for syncing
     // -------------------------------------------------------------------------
-    let modelRef: THREE.Object3D | null = null; // Reference to the loaded model
+    // modelObjRef is defined at component level for access in event handlers
 
     // -------------------------------------------------------------------------
     // Initialize lil-gui for debug controls (development only)
@@ -1402,7 +924,7 @@ export default function Home() {
         (model as any).__paintableMeshes = paintableMeshes;
 
         // Store model reference for animation
-        modelRef = model;
+        modelObjRef.current = model;
 
         scene.add(model);
 
@@ -1472,8 +994,8 @@ export default function Home() {
       updateCursorSmooth(); // Smooth cursor interpolation
 
       // Spin model if enabled (uses React ref for state)
-      if (animationRef.current.spin && modelRef) {
-        modelRef.rotation.y += 0.01 * animationRef.current.spinSpeed;
+      if (animationRef.current.spin && modelObjRef.current) {
+        modelObjRef.current.rotation.y += 0.01 * animationRef.current.spinSpeed;
       }
 
       // Continuous airbrush spraying while holding mouse button
@@ -1733,8 +1255,8 @@ export default function Home() {
     };
 
     /**
-     * Pointer down handler - LEFT click for painting on model, orbit when outside.
-     * OrbitControls is dynamically enabled/disabled based on raycast hit.
+     * Pointer down handler - LEFT click for painting on model, or move/rotate outside.
+     * OrbitControls is dynamically enabled/disabled based on raycast hit and mode.
      */
     const handlePointerDown = (event: PointerEvent) => {
       // Only handle LEFT mouse button (button === 0)
@@ -1742,23 +1264,50 @@ export default function Home() {
         const uv = raycastToUV(event);
 
         if (uv) {
-          // We hit the model - disable orbit, start painting
+          // We hit the model - disable controls, start painting
           controls.enabled = false;
           event.preventDefault();
           isPaintingRef.current = true;
           lastPaintUV = uv.clone();
           paintAtUV(uv);
         } else {
-          // Clicked outside model - enable orbit controls
-          controls.enabled = true;
+          // Clicked outside model
+          if (cursorModeRef.current === CursorMode.Move) {
+            // Move mode - start dragging the model
+            controls.enabled = false;
+            isDraggingModelRef.current = true;
+            dragStartMouseRef.current.set(event.clientX, event.clientY);
+            if (modelObjRef.current) {
+              dragStartModelPosRef.current.copy(modelObjRef.current.position);
+            }
+          } else {
+            // Rotate mode - enable orbit controls
+            controls.enabled = true;
+          }
         }
       }
     };
 
     /**
-     * Pointer move handler - update brush cursor and paint if in painting mode.
+     * Pointer move handler - update brush cursor, paint, or drag model.
      */
     const handlePointerMove = (event: PointerEvent) => {
+      // Handle model dragging in move mode
+      if (isDraggingModelRef.current && modelObjRef.current) {
+        const deltaX = (event.clientX - dragStartMouseRef.current.x) * 0.005;
+        const deltaY = (event.clientY - dragStartMouseRef.current.y) * -0.005;
+
+        // Move in camera-relative XY plane
+        const cameraRight = new THREE.Vector3();
+        const cameraUp = new THREE.Vector3();
+        camera.matrix.extractBasis(cameraRight, cameraUp, new THREE.Vector3());
+
+        modelObjRef.current.position.copy(dragStartModelPosRef.current);
+        modelObjRef.current.position.addScaledVector(cameraRight, deltaX);
+        modelObjRef.current.position.addScaledVector(cameraUp, deltaY);
+        return;
+      }
+
       const result = raycast(event);
 
       if (result) {
@@ -1799,10 +1348,11 @@ export default function Home() {
     };
 
     /**
-     * Handle mouse leaving the canvas - hide cursor.
+     * Handle mouse leaving the canvas - hide cursor and stop dragging.
      */
     const handlePointerLeave = () => {
       isPaintingRef.current = false;
+      isDraggingModelRef.current = false;
       const cursor = brushCursorRef.current;
       if (cursor) {
         cursor.visible = false;
@@ -1810,11 +1360,12 @@ export default function Home() {
     };
 
     /**
-     * Pointer up handler - stop painting and re-enable orbit controls.
+     * Pointer up handler - stop painting/dragging and re-enable controls.
      */
     const handlePointerUp = () => {
       isPaintingRef.current = false;
-      controls.enabled = true; // Re-enable orbit after painting
+      isDraggingModelRef.current = false;
+      controls.enabled = true;
     };
 
     /**
@@ -2012,15 +1563,52 @@ export default function Home() {
   }, []);
 
   // ============================================================================
-  // BACKGROUND COLOR CHANGE HANDLER
+  // COLOR SELECT HANDLER (with history)
   // ============================================================================
 
-  const handleBackgroundChange = useCallback((color: string) => {
-    setBackgroundColor(color);
-    const renderer = rendererRef.current;
-    if (renderer) {
-      renderer.setClearColor(color, 1);
-    }
+  const handleColorSelect = useCallback((color: string) => {
+    // Update brush color
+    setBrush((prev) => ({ ...prev, color }));
+    brushRef.current.color = color;
+  }, []);
+
+  const handleColorCommit = useCallback((color: string) => {
+    // Update brush color
+    setBrush((prev) => ({ ...prev, color }));
+    brushRef.current.color = color;
+
+    // Add to history (avoid duplicates, keep last 5 for history display)
+    setColorHistory((prev) => {
+      const filtered = prev.filter(
+        (c) => c.toLowerCase() !== color.toLowerCase()
+      );
+      return [color, ...filtered].slice(0, 5);
+    });
+  }, []);
+
+  // ============================================================================
+  // KEYBOARD SHORTCUTS FOR CURSOR MODE
+  // ============================================================================
+
+  useEffect(() => {
+    const handleModeKeyDown = (event: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "m") {
+        setCursorMode(CursorMode.Move);
+      } else if (event.key.toLowerCase() === "r") {
+        setCursorMode(CursorMode.Rotate);
+      }
+    };
+
+    window.addEventListener("keydown", handleModeKeyDown);
+    return () => window.removeEventListener("keydown", handleModeKeyDown);
   }, []);
 
   // ============================================================================
@@ -2028,43 +1616,72 @@ export default function Home() {
   // ============================================================================
 
   return (
-    <div className="h-screen w-screen flex bg-slate-900 overflow-hidden">
+    <div className="h-screen w-screen flex overflow-hidden">
+      {/* Infinite Dot Grid Background */}
+      <div
+        className="fixed inset-0 z-0"
+        style={{
+          backgroundColor: "#18181b",
+          backgroundImage:
+            "radial-gradient(circle, #52525b 1.5px, transparent 1.5px)",
+          backgroundSize: "24px 24px",
+        }}
+      />
+
       {/* 3D Canvas Container */}
-      <div ref={containerRef} className="flex-1 relative">
+      <div ref={containerRef} className="flex-1 relative z-10 bg-transparent">
         <canvas
           ref={canvasRef}
-          className="w-full h-full block"
-          style={{ touchAction: "none" }} // Prevent touch scroll interference
+          className="w-full h-full block bg-transparent"
+          style={{
+            touchAction: "none",
+            cursor:
+              cursorMode === CursorMode.Move
+                ? isGrabbing
+                  ? "grabbing"
+                  : "grab"
+                : "alias",
+          }}
+          onMouseDown={() => {
+            if (cursorMode === CursorMode.Move) setIsGrabbing(true);
+          }}
+          onMouseUp={() => setIsGrabbing(false)}
+          onMouseLeave={() => setIsGrabbing(false)}
         />
 
         {/* Loading Overlay */}
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80">
             <div className="text-center">
-              <div className="w-12 h-12 border-4 border-slate-600 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-slate-300">Loading ...</p>
-              {/* <p className="text-slate-300">Loading {selectedModel.name}...</p> */}
+              <div className="w-12 h-12 border-4 border-zinc-600 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-zinc-300">Loading ...</p>
+              {/* <p className="text-zinc-300">Loading {selectedModel.name}...</p> */}
             </div>
           </div>
         )}
       </div>
 
-      {/* Controls Panel */}
-      <ControlsPanel
-        brush={brush}
-        onBrushChange={handleBrushChange}
-        onClear={handleClear}
-        isLoading={isLoading}
-        isOpen={isPanelOpen}
-        onToggle={() => setIsPanelOpen(!isPanelOpen)}
+      {/* Top Right Toolbar */}
+      <TopRightToolbar
         animation={animation}
-        onAnimationChange={(changes) =>
+        onAnimationChange={(changes: Partial<AnimationState>) =>
           setAnimation((prev) => ({ ...prev, ...changes }))
         }
+        onClear={handleClear}
+        isLoading={isLoading}
+      />
+
+      {/* Bottom Toolbar */}
+      <BottomToolbar
+        brush={brush}
+        onBrushChange={handleBrushChange}
         currentShader={currentShader}
         onShaderChange={handleShaderChange}
-        backgroundColor={backgroundColor}
-        onBackgroundChange={handleBackgroundChange}
+        cursorMode={cursorMode}
+        onCursorModeChange={setCursorMode}
+        colorHistory={colorHistory}
+        onColorChange={handleColorSelect}
+        onColorCommit={handleColorCommit}
       />
 
       {/* Share Modal */}
@@ -2073,11 +1690,6 @@ export default function Home() {
         imageUrl={screenshotUrl}
         onClose={handleCloseShareModal}
       />
-
-      {/* Help Text - Bottom Left */}
-      <p className="fixed bottom-4 left-4 text-[12px] text-zinc-300 z-10">
-        Click on model to paint • Click outside to orbit • Scroll to zoom
-      </p>
     </div>
   );
 }

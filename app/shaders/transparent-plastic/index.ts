@@ -38,7 +38,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.7,
+    default: 0.2,
   },
   {
     name: "clearcoat",

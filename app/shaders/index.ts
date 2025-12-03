@@ -39,12 +39,12 @@ export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
  * All available shaders in order of display
  */
 export const shaders: CustomShader[] = [
+  // standardShader,
   ceramicShader,
+  glassShader,
   transparentPlasticShader,
   metalShader,
-  // pearlescentArmorShader,
-  // standardShader,
-  glassShader,
+  pearlescentArmorShader,
 ];
 
 /**
