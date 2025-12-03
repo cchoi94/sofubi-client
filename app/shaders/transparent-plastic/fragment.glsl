@@ -1,3 +1,8 @@
+// Frosted Glass / Smoked Plastic Shader
+// See-through material with visible form and soft highlights
+
+precision highp float;
+
 uniform sampler2D paintTexture;
 uniform sampler2D normalMap;
 uniform sampler2D roughnessMap;
@@ -29,24 +34,26 @@ varying vec3 vReflect;
 varying vec3 vTangent;
 varying vec3 vBitangent;
 
-// Environment reflection
-vec3 envReflection(vec3 reflectDir) {
-  float y = reflectDir.y * 0.5 + 0.5;
-  vec3 skyColor = mix(vec3(0.7, 0.75, 0.85), vec3(1.0, 1.0, 1.0), pow(y, 0.6));
-  vec3 groundColor = vec3(0.25, 0.22, 0.2);
-  return mix(groundColor, skyColor, smoothstep(-0.2, 0.4, reflectDir.y));
+// Fresnel - how much edge reflection
+float fresnelSchlick(float cosTheta, float F0) {
+  return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-// Specular highlight
-float specularHighlight(vec3 N, vec3 H, float shine) {
-  float NdotH = max(dot(N, H), 0.0);
-  return pow(NdotH, shine);
+// Blinn-Phong specular
+float blinnPhong(vec3 lightDir, vec3 viewDir, vec3 normal, float shininess) {
+  vec3 halfDir = normalize(lightDir + viewDir);
+  return pow(max(dot(normal, halfDir), 0.0), shininess);
+}
+
+// Soft diffuse wrap
+float wrapDiffuse(vec3 lightDir, vec3 normal, float wrap) {
+  float NdotL = dot(normal, lightDir);
+  return max(0.0, (NdotL + wrap) / (1.0 + wrap));
 }
 
 void main() {
+  // Sample paint
   vec4 paintColor = texture2D(paintTexture, vUv);
-  // Paint replaces plastic color where painted (based on alpha)
-  vec3 tint = mix(plasticColor, paintColor.rgb, paintColor.a);
 
   // Normal mapping
   vec3 N = normalize(vNormal);
@@ -59,63 +66,74 @@ void main() {
     N = normalize(TBN * normalTex);
   }
 
-  // Roughness from map
+  // Roughness
   float rough = 0.3;
   if(useRoughnessMap > 0.5) {
     rough = texture2D(roughnessMap, vUv).r;
   }
 
-  // AO from map
+  // AO
   float ao = 1.0;
   if(useAoMap > 0.5) {
     ao = texture2D(aoMap, vUv).r;
   }
 
   vec3 V = normalize(vViewPosition);
-  vec3 L1 = normalize(lightPosition - vWorldPosition);
-  vec3 L2 = normalize(lightPosition2 - vWorldPosition);
-  vec3 H1 = normalize(V + L1);
-  vec3 H2 = normalize(V + L2);
+
+  // Light directions
+  vec3 L1 = normalize(vec3(1.0, 1.0, 0.8));  // Main light
+  vec3 L2 = normalize(vec3(-0.6, 0.3, 0.5)); // Fill light
+  vec3 L3 = normalize(vec3(0.0, 0.2, -1.0)); // Rim/back light
 
   float NdotV = max(dot(N, V), 0.0);
-  float NdotL1 = max(dot(N, L1), 0.0);
-  float NdotL2 = max(dot(N, L2), 0.0);
 
-  // Fresnel - plastic edges catch light
-  float fresnel = pow(1.0 - NdotV, fresnelPower);
+  // Diffuse lighting - soft wrap for frosted look
+  float diff1 = wrapDiffuse(L1, N, 0.4);
+  float diff2 = wrapDiffuse(L2, N, 0.5) * 0.4;
+  float diff3 = wrapDiffuse(L3, N, 0.3) * 0.25;
+  float totalDiff = (diff1 + diff2 + diff3) * lightIntensity;
 
-  // Specular highlights - softer than glass, factor in roughness
-  float shininess = glossiness * 150.0 * (1.0 - rough * 0.5) + 30.0;
-  float spec1 = specularHighlight(N, H1, shininess);
-  float spec2 = specularHighlight(N, H2, shininess * 0.7);
-  vec3 specular = lightColor * (spec1 + spec2 * 0.4) * specularIntensity * lightIntensity;
+  // Specular - softer for frosted glass
+  float shininess = glossiness * 60.0 * (1.0 - rough * 0.5) + 10.0;
+  float spec1 = blinnPhong(L1, V, N, shininess);
+  float spec2 = blinnPhong(L2, V, N, shininess * 0.7) * 0.3;
+  float totalSpec = (spec1 + spec2) * specularIntensity;
 
-  // Reflection - subtle
-  vec3 reflection = envReflection(vReflect) * reflectionStrength * fresnel;
+  // Fresnel for edge glow
+  float fresnel = fresnelSchlick(NdotV, 0.04);
+  float fresnelEdge = pow(1.0 - NdotV, fresnelPower);
 
-  // Rim/edge lighting - this makes plastic bottles visible
+  // Rim lighting
   float rim = pow(1.0 - NdotV, edgeThickness);
-  vec3 rimColor = tint * rimBrightness * rim;
 
-  // Very subtle diffuse tint
-  vec3 diffuseTint = tint * 0.05 * (NdotL1 * 0.5 + NdotL2 * 0.3 + 0.2);
+  // Base glass color - very subtle tint, mostly transparent
+  vec3 glassBase = plasticColor * totalDiff * ao * 0.3;
 
-  // Paint contribution - painted areas should be more opaque and visible
-  vec3 paintContribution = paintColor.rgb * paintColor.a * (NdotL1 * 0.6 + NdotL2 * 0.3 + 0.4);
+  // Specular highlights - main visible element
+  vec3 specColor = lightColor * totalSpec;
 
-  // Combine - glass-like with mostly specular/reflection
-  vec3 color = diffuseTint + specular * 1.5 + reflection * 1.2 + rimColor * 0.5 + paintContribution;
+  // Rim/edge highlight - helps see the shape
+  vec3 rimColor = lightColor * rim * rimBrightness * 0.5;
 
-  // Alpha - glass-like transparency, mostly invisible except reflections
-  float alpha = opacity * 0.03; // Nearly invisible base
-  alpha += fresnel * 0.12;  // Subtle edge visibility
-  alpha += rim * 0.04;      // Very faint rim
-  alpha += (spec1 + spec2) * 0.4; // Specular highlights more visible
-  alpha += paintColor.a * 0.95; // Painted areas opaque
-  alpha = clamp(alpha, 0.02, 0.95); // Allow near-invisible
+  // Fresnel edge - subtle
+  vec3 fresnelColor = lightColor * fresnelEdge * reflectionStrength * 0.2;
 
-  // Light gamma correction, keep it bright
-  color = pow(color, vec3(1.0 / 2.0));
+  // Paint contribution - painted areas show through
+  vec3 paintContrib = paintColor.rgb * paintColor.a;
+
+  // Combine - glass is mostly specular highlights, minimal color
+  vec3 color = glassBase + specColor + rimColor + fresnelColor + paintContrib;
+
+  // Gamma correction only
+  color = pow(color, vec3(1.0 / 2.2));
+
+  // Alpha - LOW base, glass is mostly invisible
+  float alpha = opacity * 0.15;          // Very transparent base
+  alpha += fresnelEdge * 0.25;           // Edges more visible (Fresnel)
+  alpha += rim * 0.1;                    // Subtle rim
+  alpha += totalSpec * 0.6;              // Specular highlights pop
+  alpha += paintColor.a;                 // Paint is opaque
+  alpha = clamp(alpha, 0.05, 1.0);       // Can be very transparent
 
   gl_FragColor = vec4(color, alpha);
 }

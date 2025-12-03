@@ -1,93 +1,77 @@
 /**
  * Ceramic Glaze Shader
  *
- * A custom shader that creates a smooth glazed pottery look.
- * Features:
- * - Soft diffuse lighting with wrap
- * - Glossy but not mirror-like specular
- * - Subtle subsurface scattering simulation
- * - Glaze coating with fresnel rim
- * - Warm ambient tones
+ * Smooth glazed pottery look using MeshPhysicalMaterial.
+ * Based on: https://threejs.org/manual/#en/materials
+ * - Low metalness (non-metallic)
+ * - Low roughness (glossy glaze)
+ * - Clearcoat for that glazed layer effect
  */
 
 import * as THREE from "three";
 import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
-
-// Import GLSL shaders
-import vertexShader from "./vertex.glsl?raw";
-import fragmentShader from "./fragment.glsl?raw";
 
 // ============================================================================
 // GUI PARAMETERS
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "baseColor", type: "color", default: "#f5f0e8" }, // Warm off-white clay
-  { name: "glazeColor", type: "color", default: "#e8e4dc" }, // Slightly warm glaze
-  {
-    name: "glazeThickness",
-    type: "number",
-    min: 0,
-    max: 1,
-    step: 0.01,
-    default: 0.5,
-  },
-  {
-    name: "glossiness",
-    type: "number",
-    min: 0,
-    max: 1,
-    step: 0.01,
-    default: 0.7,
-  },
+  { name: "color", type: "color", default: "#f5f0e8" }, // Warm off-white clay
   {
     name: "roughness",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.3,
+    default: 0.2, // Smooth glazed surface
   },
   {
-    name: "subsurfaceStrength",
+    name: "metalness",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.4,
+    default: 0.0, // Non-metallic
   },
   {
-    name: "fresnelPower",
+    name: "clearcoat",
     type: "number",
-    min: 1,
-    max: 5,
-    step: 0.1,
-    default: 2.5,
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 1.0, // Full glaze coating
   },
-  { name: "lightColor", type: "color", default: "#fffaf5" }, // Warm white light
   {
-    name: "lightIntensity",
+    name: "clearcoatRoughness",
+    type: "number",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.1, // Smooth glaze
+  },
+  {
+    name: "envMapIntensity",
     type: "number",
     min: 0,
     max: 3,
     step: 0.01,
-    default: 1.2,
-  },
-  {
-    name: "specularIntensity",
-    type: "number",
-    min: 0,
-    max: 2,
-    step: 0.01,
     default: 0.8,
   },
   {
-    name: "ambientIntensity",
+    name: "ior",
+    type: "number",
+    min: 1,
+    max: 2.5,
+    step: 0.01,
+    default: 1.5, // Glass-like glaze
+  },
+  {
+    name: "reflectivity",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.25,
+    default: 0.5,
   },
 ];
 
@@ -96,61 +80,72 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates the ceramic glaze material
+ * Creates a ceramic glaze material using MeshPhysicalMaterial
  */
-function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
-  const uniforms = {
-    paintTexture: { value: config.paintTexture },
-    normalMap: { value: config.normalMap || null },
-    roughnessMap: { value: config.roughnessMap || null },
-    aoMap: { value: config.aoMap || null },
-    normalScale: { value: 1.0 },
-    useNormalMap: { value: config.normalMap ? 1.0 : 0.0 },
-    useRoughnessMap: { value: config.roughnessMap ? 1.0 : 0.0 },
-    useAoMap: { value: config.aoMap ? 1.0 : 0.0 },
-    baseColor: { value: new THREE.Color("#f5f0e8") },
-    glazeColor: { value: new THREE.Color("#e8e4dc") },
-    glazeThickness: { value: 0.5 },
-    glossiness: { value: 0.7 },
-    roughness: { value: 0.3 },
-    subsurfaceStrength: { value: 0.4 },
-    fresnelPower: { value: 2.5 },
-    lightColor: { value: new THREE.Color("#fffaf5") },
-    lightIntensity: { value: 1.2 },
-    specularIntensity: { value: 0.8 },
-    ambientIntensity: { value: 0.25 },
-  };
-
-  return new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader,
-    fragmentShader,
+function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color("#f5f0e8"), // Warm off-white
+    roughness: 0.2,
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 0.8,
+    ior: 1.5,
+    reflectivity: 0.5,
     side: THREE.DoubleSide,
+    // Use paint texture as the base map
+    map: config.paintTexture,
+    // Use original maps if available
+    normalMap: config.normalMap || null,
+    roughnessMap: config.roughnessMap || null,
+    aoMap: config.aoMap || null,
   });
+
+  // Set normal scale if normal map exists
+  if (config.normalMap) {
+    material.normalScale = new THREE.Vector2(1, 1);
+  }
+
+  return material;
 }
 
 /**
- * Updates shader uniforms when GUI params change
+ * Updates material properties when GUI params change
  */
 function updateUniforms(
   material: THREE.Material,
   params: Record<string, any>
 ): void {
-  const shaderMaterial = material as THREE.ShaderMaterial;
-  if (!shaderMaterial.uniforms) return;
+  const physicalMat = material as THREE.MeshPhysicalMaterial;
 
-  // Update each uniform based on param type
   for (const [key, value] of Object.entries(params)) {
-    if (shaderMaterial.uniforms[key]) {
-      if (typeof value === "string" && value.startsWith("#")) {
-        // Color value
-        shaderMaterial.uniforms[key].value.set(value);
-      } else {
-        // Numeric value
-        shaderMaterial.uniforms[key].value = value;
-      }
+    if (key === "color" && typeof value === "string") {
+      physicalMat.color.set(value);
+    } else if (key === "roughness") {
+      physicalMat.roughness = value;
+    } else if (key === "metalness") {
+      physicalMat.metalness = value;
+    } else if (key === "clearcoat") {
+      physicalMat.clearcoat = value;
+    } else if (key === "clearcoatRoughness") {
+      physicalMat.clearcoatRoughness = value;
+    } else if (key === "envMapIntensity") {
+      physicalMat.envMapIntensity = value;
+    } else if (key === "ior") {
+      physicalMat.ior = value;
+    } else if (key === "reflectivity") {
+      physicalMat.reflectivity = value;
     }
   }
+
+  physicalMat.needsUpdate = true;
+}
+
+/**
+ * Cleanup function
+ */
+function dispose(material: THREE.Material): void {
+  material.dispose();
 }
 
 // ============================================================================
@@ -160,9 +155,9 @@ function updateUniforms(
 export const ceramicShader: CustomShader = {
   name: "Ceramic Glaze",
   id: "ceramic-glaze",
-  description:
-    "Smooth glazed pottery with soft diffuse lighting and subtle subsurface glow",
+  description: "Smooth glazed pottery with glossy clearcoat finish",
   createMaterial,
   guiParams,
   updateUniforms,
+  dispose,
 };

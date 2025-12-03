@@ -9,6 +9,7 @@ import type { CustomShader, ShaderConfig, ShaderGuiParam } from "./types";
 import { standardShader } from "./standard";
 import { pearlescentArmorShader } from "./pearlescent-armor/index";
 import { transparentPlasticShader } from "./transparent-plastic/index";
+import { glassShader } from "./glass/index";
 import { ceramicShader } from "./ceramic/index";
 import { metalShader } from "./metal/index";
 
@@ -25,6 +26,7 @@ export const ShaderId = {
   TRANSPARENT_PLASTIC: "transparent-plastic",
   METAL: "metal",
   PEARLESCENT: "pearlescent-armor",
+  GLASS: "glass",
 } as const;
 
 export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
@@ -39,6 +41,7 @@ export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
 export const shaders: CustomShader[] = [
   // standardShader,
   ceramicShader,
+  glassShader,
   transparentPlasticShader,
   metalShader,
   pearlescentArmorShader,
@@ -75,6 +78,7 @@ export {
   // standardShader,
   pearlescentArmorShader,
   transparentPlasticShader,
+  glassShader,
   ceramicShader,
   metalShader,
 };

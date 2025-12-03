@@ -1,10 +1,11 @@
 /**
- * Frosted Plastic Shader
+ * Glass Shader
  *
- * See-through frosted plastic with transmission.
- * - transmission: 1 (fully see-through)
- * - roughness: 0.7 (frosted/diffused look)
- * - clearcoat: for shiny plastic surface
+ * Clear, transparent glass with refraction.
+ * Uses transmission for real glass effect.
+ * - roughness: 0 (perfectly smooth)
+ * - transmission: 1 (fully transparent)
+ * - thickness for refraction depth
  */
 
 import * as THREE from "three";
@@ -15,7 +16,7 @@ import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "color", type: "color", default: "#e8eaec" },
+  { name: "color", type: "color", default: "#ffffff" },
   {
     name: "transmission",
     type: "number",
@@ -30,7 +31,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 2,
     step: 0.01,
-    default: 1.0,
+    default: 0.5,
   },
   {
     name: "roughness",
@@ -38,23 +39,15 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.7,
+    default: 0.0,
   },
   {
-    name: "clearcoat",
+    name: "ior",
     type: "number",
-    min: 0,
-    max: 1,
+    min: 1,
+    max: 2.5,
     step: 0.01,
-    default: 1.0,
-  },
-  {
-    name: "clearcoatRoughness",
-    type: "number",
-    min: 0,
-    max: 1,
-    step: 0.01,
-    default: 0.1,
+    default: 1.5,
   },
   {
     name: "envMapIntensity",
@@ -71,40 +64,28 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates a frosted plastic material following the Codrops approach:
+ * Creates a clear glass material following the Codrops approach:
  * https://tympanus.net/codrops/2021/10/27/creating-the-effect-of-transparent-glass-and-plastic-in-three-js/
- *
- * Frosted glass/plastic uses:
- * - High roughness (0.7) for frosted diffusion
- * - clearcoat for shiny surface on top of frosted material
- * - normalMap affects transmission texture
- * - clearcoatNormalMap affects surface finish texture
  */
 function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
-    // Core properties from Codrops
-    metalness: 0, // Non-metallic
-    roughness: 0.7, // Frosted/diffused - key for plastic look!
+    // Core glass properties from Codrops
+    metalness: 0, // Non-metallic - essential for glass
+    roughness: 0, // Perfectly smooth surface
     transmission: 1, // Fully transparent
-    thickness: 1.0, // Higher thickness for more pronounced frosting
+    thickness: 0.5, // Refraction amount - the magic!
 
-    // Refraction
-    ior: 1.5, // Standard glass/plastic IOR
-
-    // Clearcoat - shiny surface on frosted material (like polished plastic)
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.1, // Smooth clearcoat surface
+    // Refraction settings
+    ior: 1.5, // Index of refraction (glass ~1.5)
 
     // Color and reflections
-    color: new THREE.Color("#e8eaec"), // Slight tint
+    color: new THREE.Color("#ffffff"),
     envMapIntensity: 1.0,
 
-    // Textures - normalMap affects frosted transmission, clearcoatNormalMap affects shiny surface
+    // Textures - normalMap affects transmission, clearcoatNormalMap affects surface
     map: config.paintTexture,
     normalMap: config.normalMap ?? null,
-    normalScale: new THREE.Vector2(0.3, 0.3),
-    clearcoatNormalMap: config.normalMap ?? null,
-    clearcoatNormalScale: new THREE.Vector2(0.1, 0.1),
+    normalScale: new THREE.Vector2(0.5, 0.5),
   });
 
   return material;
@@ -117,27 +98,25 @@ function updateUniforms(
   material: THREE.Material,
   params: Record<string, any>
 ): void {
-  const physicalMat = material as THREE.MeshPhysicalMaterial;
+  const mat = material as THREE.MeshPhysicalMaterial;
 
   for (const [key, value] of Object.entries(params)) {
     if (key === "color" && typeof value === "string") {
-      physicalMat.color.set(value);
+      mat.color.set(value);
     } else if (key === "transmission") {
-      physicalMat.transmission = value;
+      mat.transmission = value;
     } else if (key === "thickness") {
-      physicalMat.thickness = value;
+      mat.thickness = value;
     } else if (key === "roughness") {
-      physicalMat.roughness = value;
-    } else if (key === "clearcoat") {
-      physicalMat.clearcoat = value;
-    } else if (key === "clearcoatRoughness") {
-      physicalMat.clearcoatRoughness = value;
+      mat.roughness = value;
+    } else if (key === "ior") {
+      mat.ior = value;
     } else if (key === "envMapIntensity") {
-      physicalMat.envMapIntensity = value;
+      mat.envMapIntensity = value;
     }
   }
 
-  physicalMat.needsUpdate = true;
+  mat.needsUpdate = true;
 }
 
 /**
@@ -151,10 +130,10 @@ function dispose(material: THREE.Material): void {
 // EXPORT
 // ============================================================================
 
-export const transparentPlasticShader: CustomShader = {
-  name: "Frosted Plastic",
-  id: "transparent-plastic",
-  description: "See-through frosted plastic with shiny surface",
+export const glassShader: CustomShader = {
+  name: "Glass",
+  id: "glass",
+  description: "Clear transparent glass with refraction",
   createMaterial,
   guiParams,
   updateUniforms,

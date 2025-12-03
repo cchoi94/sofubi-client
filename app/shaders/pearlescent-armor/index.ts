@@ -1,101 +1,93 @@
 /**
- * Chrome Knight Armor Shader
+ * Pearlescent Shader
  *
- * A custom shader that creates a polished chrome armor effect with
- * subtle pearlescent iridescence. Designed to look like medieval knight armor.
- * Features:
- * - High reflectivity chrome base
- * - Subtle view-angle dependent color shifting
- * - Sharp specular highlights
- * - Environment-like reflections
- * - Paint texture tinting
+ * Mother-of-pearl / nacre look - like the inside of an oyster shell.
+ * Soft, milky iridescence with subtle rainbow color shifting.
+ * - Low metalness (nacreous, not chrome)
+ * - Medium roughness (soft sheen, not mirror)
+ * - Subtle iridescence for color shifting
  */
 
 import * as THREE from "three";
 import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
-
-// Import GLSL shaders
-import vertexShader from "./vertex.glsl?raw";
-import fragmentShader from "./fragment.glsl?raw";
 
 // ============================================================================
 // GUI PARAMETERS
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "silverColor", type: "color", default: "#c8c8d0" }, // Bright chrome silver
+  { name: "color", type: "color", default: "#faf8f6" }, // Pure white pearl
   {
-    name: "silverIntensity",
-    type: "number",
-    min: 0.3,
-    max: 2,
-    step: 0.01,
-    default: 1.1,
-  },
-  {
-    name: "shininess",
-    type: "number",
-    min: 10,
-    max: 500,
-    step: 1,
-    default: 180,
-  },
-  {
-    name: "reflectionStrength",
+    name: "metalness",
     type: "number",
     min: 0,
-    max: 2,
+    max: 1,
     step: 0.01,
-    default: 0.85,
+    default: 0.3, // Slightly lustrous
   },
   {
-    name: "iridescenceStrength",
+    name: "roughness",
     type: "number",
     min: 0,
-    max: 2,
+    max: 1,
     step: 0.01,
-    default: 0.4,
+    default: 0.05, // Very smooth pearl surface
   },
   {
-    name: "iridescenceScale",
+    name: "iridescence",
     type: "number",
-    min: 0.5,
-    max: 4,
-    step: 0.1,
-    default: 2.0,
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 1.0, // Full iridescence for rainbow
   },
   {
-    name: "fresnelPower",
+    name: "iridescenceIOR",
     type: "number",
     min: 1,
-    max: 6,
-    step: 0.1,
-    default: 2.0,
+    max: 2.5,
+    step: 0.01,
+    default: 1.3, // Lower = more rainbow spread
   },
-  { name: "lightColor", type: "color", default: "#ffffff" },
   {
-    name: "lightIntensity",
+    name: "envMapIntensity",
     type: "number",
     min: 0,
     max: 3,
     step: 0.01,
-    default: 1.3,
+    default: 1.0, // More reflections
   },
   {
-    name: "specularIntensity",
+    name: "clearcoat",
     type: "number",
     min: 0,
-    max: 3,
+    max: 1,
     step: 0.01,
-    default: 1.2,
+    default: 0.8, // Natural lacquer-like surface
   },
   {
-    name: "ambientIntensity",
+    name: "clearcoatRoughness",
     type: "number",
     min: 0,
-    max: 0.8,
+    max: 1,
     step: 0.01,
-    default: 0.2,
+    default: 0.2, // Slightly soft clearcoat
+  },
+  {
+    name: "sheen",
+    type: "number",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.5, // Soft fabric-like sheen
+  },
+  {
+    name: "sheenRoughness",
+    type: "number",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.5,
   },
 ];
 
@@ -104,89 +96,80 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates the chrome knight armor material
+ * Creates a mother-of-pearl material using MeshPhysicalMaterial
  */
-function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
-  const uniforms = {
-    paintTexture: { value: config.paintTexture },
-    normalMap: { value: config.normalMap || null },
-    roughnessMap: { value: config.roughnessMap || null },
-    aoMap: { value: config.aoMap || null },
-    normalScale: { value: 1.0 },
-    useNormalMap: { value: config.normalMap ? 1.0 : 0.0 },
-    useRoughnessMap: { value: config.roughnessMap ? 1.0 : 0.0 },
-    useAoMap: { value: config.aoMap ? 1.0 : 0.0 },
-    silverColor: { value: new THREE.Color("#c8c8d0") }, // Bright chrome
-    silverIntensity: { value: 1.1 },
-    shininess: { value: 230.0 },
-    reflectionStrength: { value: 1.6 },
-    iridescenceStrength: { value: 0.8 },
-    iridescenceScale: { value: 2.0 },
-    fresnelPower: { value: 2 },
-    lightPosition: { value: new THREE.Vector3(5, 10, 7) },
-    lightPosition2: { value: new THREE.Vector3(-6, 4, -3) },
-    lightColor: { value: new THREE.Color("#ffffff") },
-    lightIntensity: { value: 1.3 },
-    specularIntensity: { value: 1.2 },
-    ambientIntensity: { value: 0.2 },
-    time: { value: 0 },
-  };
-
-  const material = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader,
-    fragmentShader,
+function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color("#faf8f6"), // Pure white pearl
+    metalness: 0.3,
+    roughness: 0.05, // Very smooth pearl surface
+    iridescence: 1.0,
+    iridescenceIOR: 1.3, // Lower IOR = more rainbow spread
+    iridescenceThicknessRange: [100, 800], // Wider range = more color variation
+    envMapIntensity: 1.0,
+    clearcoat: 1.0, // Full clearcoat for glossy finish
+    clearcoatRoughness: 0.0,
+    sheen: 0.2,
+    sheenRoughness: 0.3,
+    sheenColor: new THREE.Color("#ffffff"), // White sheen
     side: THREE.DoubleSide,
+    // Use paint texture as the base map
+    map: config.paintTexture,
+    // Use original maps if available
+    normalMap: config.normalMap || null,
+    roughnessMap: config.roughnessMap || null,
+    aoMap: config.aoMap || null,
   });
 
-  // Store start time for animation
-  (material as any).__startTime = performance.now();
-  (material as any).__animationId = null;
-
-  // Animation loop for time uniform
-  const animate = () => {
-    const elapsed = (performance.now() - (material as any).__startTime) / 1000;
-    uniforms.time.value = elapsed;
-    (material as any).__animationId = requestAnimationFrame(animate);
-  };
-  animate();
+  // Set normal scale if normal map exists
+  if (config.normalMap) {
+    material.normalScale = new THREE.Vector2(1, 1);
+  }
 
   return material;
 }
 
 /**
- * Updates shader uniforms when GUI params change
+ * Updates material properties when GUI params change
  */
 function updateUniforms(
   material: THREE.Material,
   params: Record<string, any>
 ): void {
-  const shaderMaterial = material as THREE.ShaderMaterial;
-  if (!shaderMaterial.uniforms) return;
+  const physicalMat = material as THREE.MeshPhysicalMaterial;
 
-  // Update each uniform based on param type
   for (const [key, value] of Object.entries(params)) {
-    if (shaderMaterial.uniforms[key]) {
-      if (typeof value === "string" && value.startsWith("#")) {
-        // Color value
-        shaderMaterial.uniforms[key].value.set(value);
-      } else {
-        // Numeric value
-        shaderMaterial.uniforms[key].value = value;
-      }
+    if (key === "color" && typeof value === "string") {
+      physicalMat.color.set(value);
+    } else if (key === "metalness") {
+      physicalMat.metalness = value;
+    } else if (key === "roughness") {
+      physicalMat.roughness = value;
+    } else if (key === "iridescence") {
+      physicalMat.iridescence = value;
+    } else if (key === "iridescenceIOR") {
+      physicalMat.iridescenceIOR = value;
+    } else if (key === "envMapIntensity") {
+      physicalMat.envMapIntensity = value;
+    } else if (key === "clearcoat") {
+      physicalMat.clearcoat = value;
+    } else if (key === "clearcoatRoughness") {
+      physicalMat.clearcoatRoughness = value;
+    } else if (key === "sheen") {
+      physicalMat.sheen = value;
+    } else if (key === "sheenRoughness") {
+      physicalMat.sheenRoughness = value;
     }
   }
+
+  physicalMat.needsUpdate = true;
 }
 
 /**
  * Cleanup function
  */
 function dispose(material: THREE.Material): void {
-  const shaderMaterial = material as THREE.ShaderMaterial;
-  if ((shaderMaterial as any).__animationId) {
-    cancelAnimationFrame((shaderMaterial as any).__animationId);
-  }
-  shaderMaterial.dispose();
+  material.dispose();
 }
 
 // ============================================================================
@@ -194,10 +177,9 @@ function dispose(material: THREE.Material): void {
 // ============================================================================
 
 export const pearlescentArmorShader: CustomShader = {
-  name: "Pearlescent Armor",
+  name: "Mother of Pearl",
   id: "pearlescent-armor",
-  description:
-    "Iridescent metallic armor with view-angle color shifting and rim lighting",
+  description: "Soft nacreous iridescence like oyster shell interior",
   createMaterial,
   guiParams,
   updateUniforms,

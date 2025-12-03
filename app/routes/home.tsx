@@ -156,9 +156,10 @@ const BASE_COLOR = "#F3E9D7"; // Default warm white
 const SHADER_BASE_COLORS: Record<string, string> = {
   [ShaderId.STANDARD]: "#F3E9D7", // Warm off-white (sofubi/vinyl look)
   [ShaderId.PEARLESCENT]: "#E8E8EC", // Cool silver-white for chrome
-  [ShaderId.TRANSPARENT_PLASTIC]: "#F0F4F8", // Very light blue-white for clear plastic
+  [ShaderId.TRANSPARENT_PLASTIC]: "#D8DCE0", // Silvery white for frosted plastic
   [ShaderId.CERAMIC]: "#FAF6F0", // Warm cream for ceramic
-  [ShaderId.METAL]: "#C0C0C8", // Silver-gray for die-cast metal
+  [ShaderId.METAL]: "#B8B8BC", // Zinc/zamak gray for die-cast metal
+  [ShaderId.GLASS]: "#FFFFFF", // Pure white for clear glass transmission
 };
 
 // Helper to get base color for a shader
@@ -673,8 +674,9 @@ export default function Home() {
       antialias: true,
       alpha: true,
       preserveDrawingBuffer: true, // Required for screenshot capture
+      powerPreference: "high-performance", // Request high-perf GPU
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Lower pixel ratio for perf
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setClearColor(0x1e293b, 1); // slate-800
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -687,6 +689,44 @@ export default function Home() {
     // -------------------------------------------------------------------------
     const scene = new THREE.Scene();
     sceneRef.current = scene;
+
+    // -------------------------------------------------------------------------
+    // Environment Map for Glass/Reflective Materials
+    // -------------------------------------------------------------------------
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+
+    // Create a simple gradient environment for reflections
+    const envScene = new THREE.Scene();
+    const envGeo = new THREE.SphereGeometry(50, 32, 32);
+    const envMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        topColor: { value: new THREE.Color(0.9, 0.95, 1.0) },
+        bottomColor: { value: new THREE.Color(0.15, 0.15, 0.2) },
+      },
+      vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 bottomColor;
+        varying vec3 vWorldPosition;
+        void main() {
+          float h = normalize(vWorldPosition).y * 0.5 + 0.5;
+          gl_FragColor = vec4(mix(bottomColor, topColor, h), 1.0);
+        }
+      `,
+    });
+    envScene.add(new THREE.Mesh(envGeo, envMat));
+    const envMap = pmremGenerator.fromScene(envScene, 0.04).texture;
+    scene.environment = envMap;
+    pmremGenerator.dispose();
 
     // -------------------------------------------------------------------------
     // Initialize Camera
@@ -720,61 +760,56 @@ export default function Home() {
     controlsRef.current = controls;
 
     // -------------------------------------------------------------------------
-    // Initialize Lighting (Lambert-friendly setup for better normal response)
+    // Initialize Lighting (Showcase/Display Case setup)
+    // Soft, even lighting from multiple angles like a museum display
     // -------------------------------------------------------------------------
 
     // Lighting parameters (will be controlled by lil-gui)
     const lightingParams = {
-      hemiIntensity: 0.4,
+      hemiIntensity: 0.6,
       hemiSkyColor: 0xffffff,
-      hemiGroundColor: 0x444444,
-      keyIntensity: 1.5,
+      hemiGroundColor: 0x888888, // Brighter ground bounce
+      keyIntensity: 1.2,
       keyColor: 0xffffff,
-      fillIntensity: 0.6,
-      rimIntensity: 0.4,
-      ambientIntensity: 0.2,
+      fillIntensity: 0.8, // Stronger fill for even lighting
+      ambientIntensity: 0.4, // Higher ambient for showcase look
     };
 
-    // Ambient light for base illumination
+    // -------------------------------------------------------------------------
+    // Optimized Lighting Setup (reduced from 7 lights to 4 for transmission perf)
+    // -------------------------------------------------------------------------
+
+    // Ambient light - higher intensity to compensate for fewer lights
     const ambientLight = new THREE.AmbientLight(
       0xffffff,
-      lightingParams.ambientIntensity
+      lightingParams.ambientIntensity * 1.2 // Boost to compensate
     );
     scene.add(ambientLight);
 
-    // Hemisphere light - creates natural sky/ground gradient lighting
-    // This gives a nice Lambert-like falloff on surfaces
+    // Hemisphere light - combines sky/ground lighting in one efficient light
     const hemiLight = new THREE.HemisphereLight(
       lightingParams.hemiSkyColor,
       lightingParams.hemiGroundColor,
-      lightingParams.hemiIntensity
+      lightingParams.hemiIntensity * 1.3 // Boost to replace fill lights
     );
     hemiLight.position.set(0, 20, 0);
     scene.add(hemiLight);
 
-    // Key light (main directional light) - positioned for dramatic Lambert shading
+    // Key light - main directional light (front-overhead)
     const keyLight = new THREE.DirectionalLight(
       lightingParams.keyColor,
       lightingParams.keyIntensity
     );
-    keyLight.position.set(3, 8, 5);
+    keyLight.position.set(2, 8, 6); // Angled position for good coverage
     scene.add(keyLight);
 
-    // Fill light (softer, opposite side) - reduces harsh shadows
+    // Single fill light - positioned to cover both sides
     const fillLight = new THREE.DirectionalLight(
       0xffffff,
-      lightingParams.fillIntensity
+      lightingParams.fillIntensity * 1.5 // Higher intensity to cover more area
     );
-    fillLight.position.set(-5, 3, -3);
+    fillLight.position.set(-3, 4, 3);
     scene.add(fillLight);
-
-    // Rim light (back light for edge definition)
-    const rimLight = new THREE.DirectionalLight(
-      0xffffff,
-      lightingParams.rimIntensity
-    );
-    rimLight.position.set(0, 5, -10);
-    scene.add(rimLight);
 
     // -------------------------------------------------------------------------
     // Animation State (for model spin) - uses React ref for syncing
@@ -833,12 +868,6 @@ export default function Home() {
         .name("Fill Light")
         .onChange((v: number) => {
           fillLight.intensity = v;
-        });
-      lightingFolder
-        .add(lightingParams, "rimIntensity", 0, 2, 0.01)
-        .name("Rim Light")
-        .onChange((v: number) => {
-          rimLight.intensity = v;
         });
       lightingFolder.open();
     }
