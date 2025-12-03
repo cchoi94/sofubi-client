@@ -30,7 +30,30 @@ import {
   Circle,
   Paintbrush,
   Sparkles,
+  X,
+  Download,
 } from "lucide-react";
+
+// UI Components
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Slider } from "~/components/ui/slider";
+import { Switch } from "~/components/ui/switch";
+import { Label } from "~/components/ui/label";
+import { Separator } from "~/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardTitle,
+  CardDescription,
+} from "~/components/ui/card";
 
 // three.js imports
 import * as THREE from "three";
@@ -69,7 +92,7 @@ import {
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "3D Mesh Painter | Sofubi" },
+    { title: "Sofubi World" },
     {
       name: "description",
       content: "Paint directly on 3D models in your browser",
@@ -186,10 +209,10 @@ function ModelSelection({ onSelectModel }: ModelSelectionProps) {
         {/* Model Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {AVAILABLE_MODELS.map((model) => (
-            <button
+            <Card
               key={model.id}
               onClick={() => onSelectModel(model)}
-              className="group relative bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-6 hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/10"
+              className="group cursor-pointer p-6 hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/10"
             >
               {/* Model Icon/Preview Area */}
               <div className="aspect-square bg-slate-900/50 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
@@ -200,19 +223,16 @@ function ModelSelection({ onSelectModel }: ModelSelectionProps) {
                 </div>
               </div>
 
-              {/* Model Name */}
-              <h3 className="text-xl font-semibold text-white group-hover:text-blue-400 transition-colors">
+              <CardTitle className="text-xl group-hover:text-blue-400 transition-colors">
                 {model.name}
-              </h3>
-
-              {/* Click Hint */}
-              <p className="text-sm text-slate-500 mt-1 group-hover:text-slate-400 transition-colors">
+              </CardTitle>
+              <CardDescription className="mt-1 group-hover:text-slate-400 transition-colors">
                 Click to paint
-              </p>
+              </CardDescription>
 
               {/* Hover Glow Effect */}
               <div className="absolute inset-0 rounded-2xl bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors pointer-events-none" />
-            </button>
+            </Card>
           ))}
         </div>
 
@@ -233,13 +253,14 @@ function ModelSelection({ onSelectModel }: ModelSelectionProps) {
 // ============================================================================
 
 function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
-  if (!isOpen) return null;
-
-  // Generate share URLs
+  // Generate share URLs (only on client side)
   const shareText = encodeURIComponent(
     "Painted this 3D model in the browser 🎨"
   );
-  const appUrl = encodeURIComponent(window.location.href);
+  const appUrl =
+    typeof window !== "undefined"
+      ? encodeURIComponent(window.location.href)
+      : "";
   const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}&url=${appUrl}`;
 
   const handleDownload = () => {
@@ -252,36 +273,14 @@ function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">
-            Share Your Creation
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1"
-            aria-label="Close modal"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg mx-4 p-0 overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Share Your Creation</DialogTitle>
+        </DialogHeader>
 
         {/* Screenshot Preview */}
-        <div className="p-6">
+        <div className="p-6 pt-0">
           <div className="rounded-lg overflow-hidden border border-slate-600 mb-6">
             <img
               src={imageUrl}
@@ -293,25 +292,15 @@ function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
           {/* Share Buttons */}
           <div className="space-y-3">
             {/* Download PNG */}
-            <button
+            <Button
+              variant="success"
+              size="lg"
               onClick={handleDownload}
-              className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+              className="w-full"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Download className="w-5 h-5" />
               Download PNG
-            </button>
+            </Button>
 
             {/* Share on X (Twitter) */}
             <a
@@ -344,17 +333,13 @@ function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/50">
-          <button
-            onClick={onClose}
-            className="w-full py-2 text-slate-400 hover:text-white transition-colors"
-          >
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} className="w-full">
             Close
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -399,13 +384,13 @@ function ControlsPanel({
   return (
     <>
       {/* Toggle Button */}
-      <button
+      <Button
+        variant="outline"
+        size="icon"
         onClick={onToggle}
         className={cn(
-          "fixed top-4 z-30 h-9 w-9 rounded-md",
-          "bg-zinc-900/80 backdrop-blur-sm border border-zinc-800",
-          "flex items-center justify-center",
-          "text-zinc-400 hover:text-white hover:bg-zinc-800",
+          "fixed cursor-pointer top-4 z-30",
+          "bg-zinc-900/80 backdrop-blur-sm",
           "transition-all duration-200",
           isOpen ? "right-68" : "right-4"
         )}
@@ -415,7 +400,7 @@ function ControlsPanel({
         ) : (
           <ChevronLeft className="w-4 h-4" />
         )}
-      </button>
+      </Button>
 
       {/* Panel */}
       <div
@@ -428,9 +413,9 @@ function ControlsPanel({
         )}
       >
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800">
+        {/* <div className="p-4 border-b border-zinc-800">
           <h1 className="text-sm font-medium text-white">Sofubi Painter</h1>
-        </div>
+        </div> */}
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -444,81 +429,74 @@ function ControlsPanel({
 
           {/* Shader Selection */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+            <Label className="flex items-center gap-2">
               <Sparkles className="w-3 h-3" />
               Material
-            </label>
+            </Label>
             <div className="grid grid-cols-1 gap-1">
               {shaders.map((shader) => (
-                <button
+                <Button
                   key={shader.id}
+                  variant={currentShader === shader.id ? "default" : "ghost"}
+                  size="sm"
                   onClick={() => onShaderChange(shader.id)}
                   className={cn(
-                    "px-3 py-2 rounded-md text-left text-sm transition-colors",
-                    currentShader === shader.id
-                      ? "bg-white text-zinc-900 font-medium"
-                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                    "justify-start",
+                    currentShader === shader.id && "font-medium"
                   )}
                 >
                   {shader.name}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="h-px bg-zinc-800" />
+          <Separator />
 
           {/* Brush Type */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+            <Label className="flex items-center gap-2">
               <Paintbrush className="w-3 h-3" />
               Brush
-            </label>
+            </Label>
             <div className="grid grid-cols-2 gap-1">
-              <button
+              <Button
+                variant={brush.type === "airbrush" ? "default" : "ghost"}
+                size="sm"
                 onClick={() => onBrushChange({ ...BRUSH_PRESETS.airbrush })}
-                className={cn(
-                  "px-3 py-2 rounded-md text-sm transition-colors",
-                  brush.type === "airbrush"
-                    ? "bg-white text-zinc-900 font-medium"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
-                )}
+                className={brush.type === "airbrush" ? "font-medium" : ""}
               >
                 Airbrush
-              </button>
-              <button
+              </Button>
+              <Button
+                variant={brush.type === "paintbrush" ? "default" : "ghost"}
+                size="sm"
                 onClick={() => onBrushChange({ ...BRUSH_PRESETS.paintbrush })}
-                className={cn(
-                  "px-3 py-2 rounded-md text-sm transition-colors",
-                  brush.type === "paintbrush"
-                    ? "bg-white text-zinc-900 font-medium"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
-                )}
+                className={brush.type === "paintbrush" ? "font-medium" : ""}
               >
                 Paintbrush
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Color */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+            <Label className="flex items-center gap-2">
               <Palette className="w-3 h-3" />
               Color
-            </label>
+            </Label>
             <div className="flex gap-2">
               <input
                 type="color"
                 value={brush.color}
                 onChange={(e) => onBrushChange({ color: e.target.value })}
-                className="w-10 h-10 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+                className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
               />
-              <input
+              <Input
                 type="text"
                 value={brush.color.toUpperCase()}
                 onChange={(e) => onBrushChange({ color: e.target.value })}
-                className="flex-1 h-10 bg-zinc-900 border border-zinc-700 rounded-md px-3 text-white font-mono text-xs focus:outline-none focus:border-zinc-500"
+                className="flex-1 font-mono text-xs"
               />
             </div>
           </div>
@@ -526,88 +504,74 @@ function ControlsPanel({
           {/* Size */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              <Label className="flex items-center gap-2">
                 <Circle className="w-3 h-3" />
                 Size
-              </label>
+              </Label>
               <span className="text-xs text-zinc-500">{brush.radius}px</span>
             </div>
-            <input
-              type="range"
-              min="5"
+            <Slider
+              min={5}
               max={brush.type === "airbrush" ? 150 : 100}
-              value={brush.radius}
-              onChange={(e) =>
-                onBrushChange({ radius: Number(e.target.value) })
-              }
-              className="w-full h-1 bg-zinc-800 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+              step={1}
+              value={[brush.radius]}
+              onValueChange={([value]) => onBrushChange({ radius: value })}
             />
           </div>
 
-          {/* Divider */}
-          <div className="h-px bg-zinc-800" />
+          <Separator />
 
           {/* Background Color */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
-              Background
-            </label>
+            <Label>Background</Label>
             <div className="flex gap-2">
               <input
                 type="color"
                 value={backgroundColor}
                 onChange={(e) => onBackgroundChange(e.target.value)}
-                className="w-10 h-10 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+                className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
               />
-              <input
+              <Input
                 type="text"
                 value={backgroundColor.toUpperCase()}
                 onChange={(e) => onBackgroundChange(e.target.value)}
-                className="flex-1 h-10 bg-zinc-900 border border-zinc-700 rounded-md px-3 text-white font-mono text-xs focus:outline-none focus:border-zinc-500"
+                className="flex-1 font-mono text-xs"
               />
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="h-px bg-zinc-800" />
+          <Separator />
 
           {/* Spin Toggle */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+              <Label className="flex items-center gap-2">
                 <RotateCw
                   className={cn("w-3 h-3", animation.spin && "animate-spin")}
                 />
                 Auto Spin
-              </label>
-              <button
-                onClick={() => onAnimationChange({ spin: !animation.spin })}
-                className={cn(
-                  "w-8 h-5 rounded-full transition-colors relative",
-                  animation.spin ? "bg-white" : "bg-zinc-700"
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform",
-                    animation.spin ? "translate-x-3 bg-zinc-900" : "bg-zinc-400"
-                  )}
-                />
-              </button>
+              </Label>
+              <Switch
+                checked={animation.spin}
+                onCheckedChange={(checked) =>
+                  onAnimationChange({ spin: checked })
+                }
+              />
             </div>
           </div>
         </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-zinc-800">
-          <button
+          <Button
+            variant="secondary"
             onClick={onClear}
             disabled={isLoading}
-            className="w-full h-9 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-sm text-white font-medium transition-colors flex items-center justify-center gap-2"
+            className="w-full"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Clear Canvas
-          </button>
+          </Button>
         </div>
       </div>
     </>
@@ -674,7 +638,7 @@ export default function Home() {
     spinSpeed: 0.5,
   });
   const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
-  const [backgroundColor, setBackgroundColor] = useState<string>("#33364D"); // slate-800
+  const [backgroundColor, setBackgroundColor] = useState<string>("#1C1C22"); // slate-800
 
   // Ref for applying shader from outside useEffect
   const applyShaderRef = useRef<((shaderId: string) => void) | null>(null);
