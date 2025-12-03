@@ -383,195 +383,201 @@ function ControlsPanel({
 }: ControlsPanelProps) {
   return (
     <>
-      {/* Toggle Button */}
-      <Button
-        variant="outline"
-        size="icon"
-        onClick={onToggle}
-        className={cn(
-          "fixed cursor-pointer top-4 z-30",
-          "bg-zinc-900/80 backdrop-blur-sm",
-          "transition-all duration-200",
-          isOpen ? "right-68" : "right-4"
-        )}
-      >
-        {isOpen ? (
-          <ChevronRight className="w-4 h-4" />
-        ) : (
-          <ChevronLeft className="w-4 h-4" />
-        )}
-      </Button>
-
-      {/* Panel */}
+      {/* Panel Container - includes both toggle button and panel */}
       <div
         className={cn(
-          "fixed right-0 top-0 bottom-0 z-20 w-64",
-          "bg-zinc-950/95 backdrop-blur-md border-l border-zinc-800",
+          "fixed right-0 top-0 bottom-0 z-20",
           "transition-transform duration-200 ease-out",
-          "flex flex-col",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isOpen ? "translate-x-0" : "translate-x-64"
         )}
       >
-        {/* Header */}
-        {/* <div className="p-4 border-b border-zinc-800">
+        {/* Toggle Button - attached to panel, protrudes left */}
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={onToggle}
+          className={cn(
+            "absolute top-4 -left-6.5 z-30 w-7!",
+            "bg-zinc-950/95 backdrop-blur-sm border-zinc-800",
+            "rounded-l-md rounded-r-none border-r-0 border-0 hover:bg-zinc-950/95!"
+          )}
+        >
+          {isOpen ? (
+            <ChevronRight className="w-4 h-4" />
+          ) : (
+            <ChevronLeft className="w-4 h-4" />
+          )}
+        </Button>
+
+        {/* Panel */}
+        <div
+          className={cn(
+            "h-full w-64",
+            "bg-zinc-950/95 backdrop-blur-md border-l border-zinc-800",
+            "flex flex-col"
+          )}
+        >
+          {/* Header */}
+          {/* <div className="p-4 border-b border-zinc-800">
           <h1 className="text-sm font-medium text-white">Sofubi Painter</h1>
         </div> */}
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Loading */}
-          {isLoading && (
-            <div className="flex items-center gap-2 text-xs text-zinc-500">
-              <div className="w-3 h-3 border border-zinc-600 border-t-white rounded-full animate-spin" />
-              Loading...
-            </div>
-          )}
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* Loading */}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                <div className="w-3 h-3 border border-zinc-600 border-t-white rounded-full animate-spin" />
+                Loading...
+              </div>
+            )}
 
-          {/* Shader Selection */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Sparkles className="w-3 h-3" />
-              Material
-            </Label>
-            <div className="grid grid-cols-1 gap-1">
-              {shaders.map((shader) => (
+            {/* Shader Selection */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Sparkles className="w-3 h-3" />
+                Material
+              </Label>
+              <div className="grid grid-cols-1 gap-1">
+                {shaders.map((shader) => (
+                  <Button
+                    key={shader.id}
+                    variant={currentShader === shader.id ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => onShaderChange(shader.id)}
+                    className={cn(
+                      "justify-start",
+                      currentShader === shader.id && "font-medium"
+                    )}
+                  >
+                    {shader.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Brush Type */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Paintbrush className="w-3 h-3" />
+                Brush
+              </Label>
+              <div className="grid grid-cols-2 gap-1">
                 <Button
-                  key={shader.id}
-                  variant={currentShader === shader.id ? "default" : "ghost"}
+                  variant={brush.type === "airbrush" ? "default" : "ghost"}
                   size="sm"
-                  onClick={() => onShaderChange(shader.id)}
-                  className={cn(
-                    "justify-start",
-                    currentShader === shader.id && "font-medium"
-                  )}
+                  onClick={() => onBrushChange({ ...BRUSH_PRESETS.airbrush })}
+                  className={brush.type === "airbrush" ? "font-medium" : ""}
                 >
-                  {shader.name}
+                  Airbrush
                 </Button>
-              ))}
+                <Button
+                  variant={brush.type === "paintbrush" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => onBrushChange({ ...BRUSH_PRESETS.paintbrush })}
+                  className={brush.type === "paintbrush" ? "font-medium" : ""}
+                >
+                  Paintbrush
+                </Button>
+              </div>
             </div>
-          </div>
 
-          <Separator />
-
-          {/* Brush Type */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Paintbrush className="w-3 h-3" />
-              Brush
-            </Label>
-            <div className="grid grid-cols-2 gap-1">
-              <Button
-                variant={brush.type === "airbrush" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => onBrushChange({ ...BRUSH_PRESETS.airbrush })}
-                className={brush.type === "airbrush" ? "font-medium" : ""}
-              >
-                Airbrush
-              </Button>
-              <Button
-                variant={brush.type === "paintbrush" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => onBrushChange({ ...BRUSH_PRESETS.paintbrush })}
-                className={brush.type === "paintbrush" ? "font-medium" : ""}
-              >
-                Paintbrush
-              </Button>
-            </div>
-          </div>
-
-          {/* Color */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Palette className="w-3 h-3" />
-              Color
-            </Label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={brush.color}
-                onChange={(e) => onBrushChange({ color: e.target.value })}
-                className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
-              />
-              <Input
-                type="text"
-                value={brush.color.toUpperCase()}
-                onChange={(e) => onBrushChange({ color: e.target.value })}
-                className="flex-1 font-mono text-xs"
-              />
-            </div>
-          </div>
-
-          {/* Size */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            {/* Color */}
+            <div className="space-y-2">
               <Label className="flex items-center gap-2">
-                <Circle className="w-3 h-3" />
-                Size
+                <Palette className="w-3 h-3" />
+                Color
               </Label>
-              <span className="text-xs text-zinc-500">{brush.radius}px</span>
-            </div>
-            <Slider
-              min={5}
-              max={brush.type === "airbrush" ? 150 : 100}
-              step={1}
-              value={[brush.radius]}
-              onValueChange={([value]) => onBrushChange({ radius: value })}
-            />
-          </div>
-
-          <Separator />
-
-          {/* Background Color */}
-          <div className="space-y-2">
-            <Label>Background</Label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={backgroundColor}
-                onChange={(e) => onBackgroundChange(e.target.value)}
-                className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
-              />
-              <Input
-                type="text"
-                value={backgroundColor.toUpperCase()}
-                onChange={(e) => onBackgroundChange(e.target.value)}
-                className="flex-1 font-mono text-xs"
-              />
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Spin Toggle */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <RotateCw
-                  className={cn("w-3 h-3", animation.spin && "animate-spin")}
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={brush.color}
+                  onChange={(e) => onBrushChange({ color: e.target.value })}
+                  className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
                 />
-                Auto Spin
-              </Label>
-              <Switch
-                checked={animation.spin}
-                onCheckedChange={(checked) =>
-                  onAnimationChange({ spin: checked })
-                }
+                <Input
+                  type="text"
+                  value={brush.color.toUpperCase()}
+                  onChange={(e) => onBrushChange({ color: e.target.value })}
+                  className="flex-1 font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Size */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Circle className="w-3 h-3" />
+                  Size
+                </Label>
+                <span className="text-xs text-zinc-500">{brush.radius}px</span>
+              </div>
+              <Slider
+                min={5}
+                max={brush.type === "airbrush" ? 150 : 100}
+                step={1}
+                value={[brush.radius]}
+                onValueChange={([value]) => onBrushChange({ radius: value })}
               />
             </div>
-          </div>
-        </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-zinc-800">
-          <Button
-            variant="secondary"
-            onClick={onClear}
-            disabled={isLoading}
-            className="w-full"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Clear Canvas
-          </Button>
+            <Separator />
+
+            {/* Background Color */}
+            <div className="space-y-2">
+              <Label>Background</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={backgroundColor}
+                  onChange={(e) => onBackgroundChange(e.target.value)}
+                  className="w-10 h-9 rounded-md cursor-pointer border border-zinc-700 bg-transparent"
+                />
+                <Input
+                  type="text"
+                  value={backgroundColor.toUpperCase()}
+                  onChange={(e) => onBackgroundChange(e.target.value)}
+                  className="flex-1 font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Spin Toggle */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <RotateCw
+                    className={cn("w-3 h-3", animation.spin && "animate-spin")}
+                  />
+                  Auto Spin
+                </Label>
+                <Switch
+                  checked={animation.spin}
+                  onCheckedChange={(checked) =>
+                    onAnimationChange({ spin: checked })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="p-4 border-t border-zinc-800">
+            <Button
+              variant="secondary"
+              onClick={onClear}
+              disabled={isLoading}
+              className="w-full"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear Canvas
+            </Button>
+          </div>
         </div>
       </div>
     </>
