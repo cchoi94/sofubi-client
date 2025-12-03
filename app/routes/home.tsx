@@ -693,7 +693,7 @@ export default function Home() {
     // -------------------------------------------------------------------------
     const aspect = container.clientWidth / container.clientHeight;
     const camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    camera.position.set(0, 0.5, 2.5); // Closer to model
+    camera.position.set(0.7, 0.2, 1.75); // Closer to model
     cameraRef.current = camera;
 
     // -------------------------------------------------------------------------
