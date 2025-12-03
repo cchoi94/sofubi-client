@@ -152,7 +152,7 @@ function dispose(material: THREE.Material): void {
 // ============================================================================
 
 export const transparentPlasticShader: CustomShader = {
-  name: "Frosted Plastic",
+  name: "Clear Plastic",
   id: "transparent-plastic",
   description: "See-through frosted plastic with shiny surface",
   createMaterial,

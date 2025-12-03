@@ -746,12 +746,11 @@ export default function Home() {
     controls.maxDistance = 8;
     controls.target.set(0, 0, 0);
 
-    // Configure controls: RIGHT mouse button for orbit, middle for zoom
-    // This leaves left mouse button free for painting
+    // Configure controls: LEFT mouse button for orbit (when not on model), middle for zoom
     controls.mouseButtons = {
-      LEFT: null as any, // Disable left click for orbit (we use it for painting)
+      LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE,
+      RIGHT: null as any, // Disable right click orbit
     };
 
     // Disable panning to keep model centered
@@ -1734,23 +1733,26 @@ export default function Home() {
     };
 
     /**
-     * Pointer down handler - LEFT click only for painting.
-     * Right click is handled by OrbitControls for camera rotation.
+     * Pointer down handler - LEFT click for painting on model, orbit when outside.
+     * OrbitControls is dynamically enabled/disabled based on raycast hit.
      */
     const handlePointerDown = (event: PointerEvent) => {
-      // Only paint with LEFT mouse button (button === 0)
+      // Only handle LEFT mouse button (button === 0)
       if (event.button === 0) {
         const uv = raycastToUV(event);
 
         if (uv) {
-          // We hit the model, start painting
+          // We hit the model - disable orbit, start painting
+          controls.enabled = false;
           event.preventDefault();
           isPaintingRef.current = true;
           lastPaintUV = uv.clone();
           paintAtUV(uv);
+        } else {
+          // Clicked outside model - enable orbit controls
+          controls.enabled = true;
         }
       }
-      // Right click (button === 2) is handled by OrbitControls automatically
     };
 
     /**
@@ -1808,14 +1810,15 @@ export default function Home() {
     };
 
     /**
-     * Pointer up handler - stop painting.
+     * Pointer up handler - stop painting and re-enable orbit controls.
      */
     const handlePointerUp = () => {
       isPaintingRef.current = false;
+      controls.enabled = true; // Re-enable orbit after painting
     };
 
     /**
-     * Prevent context menu on right-click since we use it for orbit.
+     * Prevent context menu on right-click.
      */
     const handleContextMenu = (event: Event) => {
       event.preventDefault();
@@ -2073,7 +2076,7 @@ export default function Home() {
 
       {/* Help Text - Bottom Left */}
       <p className="fixed bottom-4 left-4 text-[12px] text-zinc-300 z-10">
-        Click to paint • Right drag to orbit • Scroll to zoom
+        Click on model to paint • Click outside to orbit • Scroll to zoom
       </p>
     </div>
   );
