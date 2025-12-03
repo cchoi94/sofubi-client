@@ -108,6 +108,11 @@ export default function Home() {
   const dragStartModelPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
   const thicknessMapRef = useRef<Float32Array | null>(null);
 
+  // Undo/Redo system refs
+  const undoHistoryRef = useRef<{ imageData: ImageData; thicknessMap: Float32Array }[]>([]);
+  const redoHistoryRef = useRef<{ imageData: ImageData; thicknessMap: Float32Array }[]>([]);
+  const MAX_UNDO_STEPS = 20;
+
   // Use brush hook for all brush-related state and handlers
   const {
     brush,
@@ -1316,6 +1321,22 @@ export default function Home() {
           // We hit the model - disable controls, start painting
           controls.enabled = false;
           event.preventDefault();
+          
+          // Save current state for undo before painting
+          const ctx = paintCtxRef.current;
+          const thicknessMap = thicknessMapRef.current;
+          if (ctx && thicknessMap) {
+            const imageData = ctx.getImageData(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+            const thicknessCopy = new Float32Array(thicknessMap);
+            undoHistoryRef.current.push({ imageData, thicknessMap: thicknessCopy });
+            // Limit history size
+            if (undoHistoryRef.current.length > MAX_UNDO_STEPS) {
+              undoHistoryRef.current.shift();
+            }
+            // Clear redo history when new stroke is made
+            redoHistoryRef.current = [];
+          }
+          
           isPaintingRef.current = true;
           lastPaintUV = uv.clone();
           paintAtUV(uv);
@@ -1629,6 +1650,49 @@ export default function Home() {
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement
       ) {
+        return;
+      }
+
+      // Handle Cmd+Z / Ctrl+Z for undo, Cmd+Shift+Z / Ctrl+Shift+Z for redo
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        const ctx = paintCtxRef.current;
+        const texture = paintTextureRef.current;
+        const thicknessMap = thicknessMapRef.current;
+        
+        if (!ctx || !texture || !thicknessMap) return;
+
+        if (event.shiftKey) {
+          // Redo: Cmd+Shift+Z
+          const redoHistory = redoHistoryRef.current;
+          if (redoHistory.length > 0) {
+            // Save current state to undo before redo
+            const currentImageData = ctx.getImageData(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+            const currentThickness = new Float32Array(thicknessMap);
+            undoHistoryRef.current.push({ imageData: currentImageData, thicknessMap: currentThickness });
+            
+            // Restore redo state
+            const redoState = redoHistory.pop()!;
+            ctx.putImageData(redoState.imageData, 0, 0);
+            thicknessMap.set(redoState.thicknessMap);
+            texture.needsUpdate = true;
+          }
+        } else {
+          // Undo: Cmd+Z
+          const undoHistory = undoHistoryRef.current;
+          if (undoHistory.length > 0) {
+            // Save current state to redo before undo
+            const currentImageData = ctx.getImageData(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+            const currentThickness = new Float32Array(thicknessMap);
+            redoHistoryRef.current.push({ imageData: currentImageData, thicknessMap: currentThickness });
+            
+            // Restore undo state
+            const undoState = undoHistory.pop()!;
+            ctx.putImageData(undoState.imageData, 0, 0);
+            thicknessMap.set(undoState.thicknessMap);
+            texture.needsUpdate = true;
+          }
+        }
         return;
       }
 
