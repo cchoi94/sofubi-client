@@ -21,6 +21,7 @@ export function BottomToolbar({
   colorHistory,
   onColorChange,
   onColorCommit,
+  hudVisible = true,
 }: BottomToolbarProps) {
   return (
     <TooltipProvider delayDuration={300}>
@@ -30,12 +31,17 @@ export function BottomToolbar({
           <CursorModePicker
             cursorMode={cursorMode}
             onCursorModeChange={onCursorModeChange}
+            hudVisible={hudVisible}
           />
 
           <Separator orientation="vertical" className="h-6 mx-1" />
 
           {/* Brush Type Picker */}
-          <BrushTypePicker brush={brush} onBrushChange={onBrushChange} />
+          <BrushTypePicker
+            brush={brush}
+            onBrushChange={onBrushChange}
+            hudVisible={hudVisible}
+          />
 
           <Separator orientation="vertical" className="h-6 mx-1" />
 
@@ -45,6 +51,7 @@ export function BottomToolbar({
             colorHistory={colorHistory}
             onColorChange={onColorChange}
             onColorCommit={onColorCommit}
+            hudVisible={hudVisible}
           />
 
           <Separator orientation="vertical" className="h-6 mx-1" />
@@ -53,6 +60,7 @@ export function BottomToolbar({
           <MaterialPicker
             currentShader={currentShader}
             onShaderChange={onShaderChange}
+            hudVisible={hudVisible}
           />
         </div>
       </div>

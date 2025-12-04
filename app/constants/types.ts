@@ -75,4 +75,5 @@ export interface BottomToolbarProps {
   colorHistory: string[];
   onColorChange: (color: string) => void;
   onColorCommit: (color: string) => void;
+  hudVisible?: boolean;
 }

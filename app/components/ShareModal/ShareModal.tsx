@@ -53,12 +53,7 @@ export function ShareModal({ isOpen, imageUrl, onClose }: ShareModalProps) {
           {/* Share Buttons */}
           <div className="space-y-3">
             {/* Download PNG */}
-            <Button
-              variant="success"
-              size="lg"
-              onClick={handleDownload}
-              className="w-full"
-            >
+            <Button size="lg" onClick={handleDownload} className="w-full">
               <Download className="w-5 h-5" />
               Download PNG
             </Button>

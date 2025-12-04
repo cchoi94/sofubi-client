@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from "react";
-import * as THREE from "three";
+import { Spherical, Vector3 } from "three";
+import type { PerspectiveCamera, CanvasTexture } from "three";
 import gsap from "gsap";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { HOTKEYS } from "~/constants/hotkeys";
@@ -17,12 +18,12 @@ export interface UndoRedoState {
 
 export interface KeyboardShortcutsConfig {
   // Refs for Three.js objects (for orbit control)
-  cameraRef: React.RefObject<THREE.PerspectiveCamera | null>;
+  cameraRef: React.RefObject<PerspectiveCamera | null>;
   controlsRef: React.RefObject<OrbitControls | null>;
 
   // Refs for undo/redo system
   paintCtxRef: React.RefObject<CanvasRenderingContext2D | null>;
-  paintTextureRef: React.RefObject<THREE.CanvasTexture | null>;
+  paintTextureRef: React.RefObject<CanvasTexture | null>;
   thicknessMapRef: React.RefObject<Float32Array | null>;
   undoHistoryRef: React.RefObject<UndoRedoState[]>;
   redoHistoryRef: React.RefObject<UndoRedoState[]>;
@@ -148,7 +149,7 @@ export function useKeyboardShortcuts({
 
       // Get current spherical coordinates relative to target
       const offset = camera.position.clone().sub(controls.target);
-      const currentSpherical = new THREE.Spherical().setFromVector3(offset);
+      const currentSpherical = new Spherical().setFromVector3(offset);
 
       // Calculate target spherical coordinates
       let targetTheta = currentSpherical.theta;
@@ -181,12 +182,12 @@ export function useKeyboardShortcuts({
         duration: orbitDuration,
         ease: "power2.out",
         onUpdate: () => {
-          const newSpherical = new THREE.Spherical(
+          const newSpherical = new Spherical(
             currentSpherical.radius,
             animState.phi,
             animState.theta
           );
-          const newOffset = new THREE.Vector3().setFromSpherical(newSpherical);
+          const newOffset = new Vector3().setFromSpherical(newSpherical);
           camera.position.copy(controls.target).add(newOffset);
           camera.lookAt(controls.target);
         },

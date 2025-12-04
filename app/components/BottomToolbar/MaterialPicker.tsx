@@ -1,4 +1,6 @@
+import { useState, useEffect } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import {
   Popover,
@@ -19,6 +21,7 @@ import { shaders } from "~/shaders";
 export interface MaterialPickerProps {
   currentShader: string;
   onShaderChange: (shaderId: string) => void;
+  hudVisible?: boolean;
 }
 
 // ============================================================================
@@ -28,9 +31,19 @@ export interface MaterialPickerProps {
 export function MaterialPicker({
   currentShader,
   onShaderChange,
+  hudVisible = true,
 }: MaterialPickerProps) {
+  const [open, setOpen] = useState(false);
+
+  // Close popover when HUD hides
+  useEffect(() => {
+    if (!hudVisible) {
+      setOpen(false);
+    }
+  }, [hudVisible]);
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
@@ -48,18 +61,20 @@ export function MaterialPicker({
           <p>Material</p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-40! p-1!" align="center" side="top">
+      <PopoverContent className="w-40 p-1" align="center" side="top">
         <div className="space-y-0.5">
           {shaders.map((shader) => (
-            <Button
+            <button
               key={shader.id}
-              variant={currentShader === shader.id ? "secondary" : "ghost"}
-              size="sm"
-              className="w-full justify-start text-sm"
+              className={cn(
+                "relative flex w-full cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+                "text-zinc-300 hover:bg-zinc-800 hover:text-white focus:bg-zinc-800",
+                currentShader === shader.id && "bg-zinc-700 text-white"
+              )}
               onClick={() => onShaderChange(shader.id)}
             >
               {shader.name}
-            </Button>
+            </button>
           ))}
         </div>
       </PopoverContent>

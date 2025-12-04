@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import {
@@ -22,6 +22,7 @@ export interface ColorPickerProps {
   colorHistory: string[];
   onColorChange: (color: string) => void;
   onColorCommit: (color: string) => void;
+  hudVisible?: boolean;
 }
 
 // ============================================================================
@@ -33,8 +34,17 @@ export function ColorPicker({
   colorHistory,
   onColorChange,
   onColorCommit,
+  hudVisible = true,
 }: ColorPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+
+  // Close popover when HUD hides
+  useEffect(() => {
+    if (!hudVisible) {
+      setOpen(false);
+    }
+  }, [hudVisible]);
 
   return (
     <>
@@ -49,7 +59,7 @@ export function ColorPicker({
         }}
         className="sr-only"
       />
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>

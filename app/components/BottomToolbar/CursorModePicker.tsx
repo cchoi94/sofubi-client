@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, Hand, Rotate3d } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -21,6 +21,7 @@ import { CursorMode, HOTKEYS, getHotkeyLabel } from "~/constants";
 export interface CursorModePickerProps {
   cursorMode: CursorMode;
   onCursorModeChange: (mode: CursorMode) => void;
+  hudVisible?: boolean;
 }
 
 // ============================================================================
@@ -30,8 +31,16 @@ export interface CursorModePickerProps {
 export function CursorModePicker({
   cursorMode,
   onCursorModeChange,
+  hudVisible = true,
 }: CursorModePickerProps) {
   const [open, setOpen] = useState(false);
+
+  // Close popover when HUD hides
+  useEffect(() => {
+    if (!hudVisible) {
+      setOpen(false);
+    }
+  }, [hudVisible]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -56,12 +65,14 @@ export function CursorModePicker({
           <p>{cursorMode === CursorMode.Move ? "Move" : "Rotate"}</p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-40! p-1" align="start" side="top">
+      <PopoverContent className="w-40 p-1" align="start" side="top">
         <div className="space-y-0.5">
-          <Button
-            variant={cursorMode === CursorMode.Move ? "secondary" : "ghost"}
-            size="sm"
-            className="w-full justify-start gap-2"
+          <button
+            className={cn(
+              "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+              "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+              { "bg-zinc-700 text-white": cursorMode === CursorMode.Move }
+            )}
             onClick={() => {
               onCursorModeChange(CursorMode.Move);
               setOpen(false);
@@ -72,11 +83,15 @@ export function CursorModePicker({
             <span className="ml-auto text-xs text-zinc-500">
               {getHotkeyLabel(HOTKEYS.CURSOR_MOVE)}
             </span>
-          </Button>
-          <Button
-            variant={cursorMode === CursorMode.Rotate ? "secondary" : "ghost"}
-            size="sm"
-            className="w-full justify-start gap-2"
+          </button>
+          <button
+            className={cn(
+              "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+              "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+              {
+                "bg-zinc-700 text-white": cursorMode === CursorMode.Rotate,
+              }
+            )}
             onClick={() => {
               onCursorModeChange(CursorMode.Rotate);
               setOpen(false);
@@ -87,7 +102,7 @@ export function CursorModePicker({
             <span className="ml-auto text-xs text-zinc-500">
               {getHotkeyLabel(HOTKEYS.CURSOR_ROTATE)}
             </span>
-          </Button>
+          </button>
         </div>
       </PopoverContent>
     </Popover>

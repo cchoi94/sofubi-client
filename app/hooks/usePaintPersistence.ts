@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import * as THREE from "three";
+import type * as THREE from "three";
 import { PAINT_CANVAS_SIZE } from "~/constants";
 
 // ============================================================================

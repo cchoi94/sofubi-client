@@ -1588,6 +1588,7 @@ export default function Home() {
           colorHistory={colorHistory}
           onColorChange={handleColorSelect}
           onColorCommit={handleColorCommit}
+          hudVisible={hudVisible}
         />
       </div>
 

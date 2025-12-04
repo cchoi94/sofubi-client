@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { RotateCw, Trash2 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -7,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
+import { ConfirmDialog } from "~/components/ui/confirm-dialog";
 import type { AnimationState } from "~/constants/types";
 
 // ============================================================================
@@ -30,6 +32,8 @@ export function TopRightToolbar({
   onClear,
   isLoading,
 }: TopRightToolbarProps) {
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="fixed top-6 right-6 z-20">
@@ -60,7 +64,7 @@ export function TopRightToolbar({
                 variant="ghost"
                 size="sm"
                 className="h-9 px-2 rounded-lg hover:bg-zinc-800 hover:text-red-400"
-                onClick={onClear}
+                onClick={() => setShowClearConfirm(true)}
                 disabled={isLoading}
               >
                 <Trash2 className="w-4 h-4" />
@@ -72,6 +76,18 @@ export function TopRightToolbar({
           </Tooltip>
         </div>
       </div>
+
+      {/* Clear Confirm Dialog */}
+      <ConfirmDialog
+        open={showClearConfirm}
+        onOpenChange={setShowClearConfirm}
+        title="Clear Canvas"
+        description="Are you sure you want to clear the canvas? This will remove all paint and cannot be undone."
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={onClear}
+      />
     </TooltipProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { Brush as BrushIcon, ChevronDown, SprayCan } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
 import {
@@ -24,6 +25,7 @@ import type { BrushState } from "~/constants/types";
 export interface BrushTypePickerProps {
   brush: BrushState;
   onBrushChange: (changes: Partial<BrushState>) => void;
+  hudVisible?: boolean;
 }
 
 // ============================================================================
@@ -33,8 +35,16 @@ export interface BrushTypePickerProps {
 export function BrushTypePicker({
   brush,
   onBrushChange,
+  hudVisible = true,
 }: BrushTypePickerProps) {
   const [open, setOpen] = useState(false);
+
+  // Close popover when HUD hides
+  useEffect(() => {
+    if (!hudVisible) {
+      setOpen(false);
+    }
+  }, [hudVisible]);
 
   const handleBrushTypeChange = (type: BrushType) => {
     onBrushChange({ ...BRUSH_PRESETS[type] });
@@ -67,12 +77,14 @@ export function BrushTypePicker({
         <div className="space-y-2">
           {/* Brush Type Selection */}
           <div className="space-y-0.5">
-            <Button
-              variant={
-                brush.type === BrushType.Airbrush ? "secondary" : "ghost"
-              }
-              size="sm"
-              className="w-full justify-start gap-2"
+            <button
+              className={cn(
+                "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+                "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                {
+                  "bg-zinc-700 text-white": brush.type === BrushType.Airbrush,
+                }
+              )}
               onClick={() => handleBrushTypeChange(BrushType.Airbrush)}
             >
               <SprayCan className="w-4 h-4" />
@@ -80,13 +92,15 @@ export function BrushTypePicker({
               <span className="ml-auto text-xs text-zinc-500">
                 {getHotkeyLabel(HOTKEYS.BRUSH_AIRBRUSH)}
               </span>
-            </Button>
-            <Button
-              variant={
-                brush.type === BrushType.Paintbrush ? "secondary" : "ghost"
-              }
-              size="sm"
-              className="w-full justify-start gap-2"
+            </button>
+            <button
+              className={cn(
+                "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+                "text-zinc-300 hover:bg-zinc-800 hover:text-white focus:bg-zinc-800",
+                {
+                  "bg-zinc-700 text-white": brush.type === BrushType.Paintbrush,
+                }
+              )}
               onClick={() => handleBrushTypeChange(BrushType.Paintbrush)}
             >
               <BrushIcon className="w-4 h-4" />
@@ -94,7 +108,7 @@ export function BrushTypePicker({
               <span className="ml-auto text-xs text-zinc-500">
                 {getHotkeyLabel(HOTKEYS.BRUSH_PAINTBRUSH)}
               </span>
-            </Button>
+            </button>
           </div>
 
           <Separator />
