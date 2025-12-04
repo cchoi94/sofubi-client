@@ -17,12 +17,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Route } from "./+types/home";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import gsap from "gsap";
 import GUI from "lil-gui";
 
 // Three.js setup utilities
-import { loadModel, animateModelFadeIn } from "~/three-utils";
+import {
+  loadModel,
+  animateModelFadeIn,
+  setupThreeScene,
+  createResizeHandler,
+  disposeThreeScene,
+} from "~/three-utils";
 
 // Shaders
 import {
@@ -60,49 +66,7 @@ import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
 // META FUNCTION
 // ============================================================================
 
-export function meta({}: Route.MetaArgs) {
-  const siteUrl = "https://sofubi.art"; // Update with your actual domain
-  const videoUrl = `${siteUrl}/assets/videos/og-video.mp4`;
-  const thumbnailUrl = `${siteUrl}/favicon.ico`; // Favicon as fallback image
-
-  return [
-    { title: "Sofubi" },
-    {
-      name: "description",
-      content: "Paint directly on 3D models in your browser",
-    },
-    // Open Graph basic
-    { property: "og:title", content: "Sofubi" },
-    {
-      property: "og:description",
-      content: "Paint directly on 3D models in your browser",
-    },
-    { property: "og:type", content: "video.other" },
-    { property: "og:url", content: siteUrl },
-    { property: "og:site_name", content: "Sofubi" },
-    // Open Graph video
-    { property: "og:video", content: videoUrl },
-    { property: "og:video:secure_url", content: videoUrl },
-    { property: "og:video:type", content: "video/mp4" },
-    { property: "og:video:width", content: "1200" },
-    { property: "og:video:height", content: "630" },
-    // Fallback image (important - many platforms show this if video doesn't autoplay)
-    { property: "og:image", content: thumbnailUrl },
-    { property: "og:image:width", content: "1200" },
-    { property: "og:image:height", content: "630" },
-    // Twitter Card (video)
-    { name: "twitter:card", content: "player" },
-    { name: "twitter:title", content: "Sofubi" },
-    {
-      name: "twitter:description",
-      content: "Paint directly on 3D models in your browser",
-    },
-    { name: "twitter:player", content: videoUrl },
-    { name: "twitter:player:width", content: "1200" },
-    { name: "twitter:player:height", content: "630" },
-    { name: "twitter:image", content: thumbnailUrl },
-  ];
-}
+export { getMetaTags as meta } from "~/constants/meta";
 
 // Components (ModelSelection, ShareModal, BottomToolbar) imported from ~/components
 
@@ -284,156 +248,24 @@ export default function Home() {
     if (!container || !canvas) return;
 
     // -------------------------------------------------------------------------
-    // Initialize Renderer
+    // Initialize Three.js Scene using setup utilities
     // -------------------------------------------------------------------------
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true, // Required for screenshot capture
-      powerPreference: "high-performance", // Request high-perf GPU
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Lower pixel ratio for perf
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setClearColor(0x000000, 0); // Transparent to show dot grid
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    const { renderer, scene, camera, controls, lights, lightingParams } =
+      setupThreeScene(canvas, container);
+
+    // Store refs for external access
     rendererRef.current = renderer;
-
-    // -------------------------------------------------------------------------
-    // Initialize Scene
-    // -------------------------------------------------------------------------
-    const scene = new THREE.Scene();
     sceneRef.current = scene;
-
-    // -------------------------------------------------------------------------
-    // Environment Map for Glass/Reflective Materials
-    // -------------------------------------------------------------------------
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-
-    // Create a simple gradient environment for reflections
-    const envScene = new THREE.Scene();
-    const envGeo = new THREE.SphereGeometry(50, 32, 32);
-    const envMat = new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      uniforms: {
-        topColor: { value: new THREE.Color(0.9, 0.95, 1.0) },
-        bottomColor: { value: new THREE.Color(0.15, 0.15, 0.2) },
-      },
-      vertexShader: `
-        varying vec3 vWorldPosition;
-        void main() {
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-          vWorldPosition = worldPosition.xyz;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 topColor;
-        uniform vec3 bottomColor;
-        varying vec3 vWorldPosition;
-        void main() {
-          float h = normalize(vWorldPosition).y * 0.5 + 0.5;
-          gl_FragColor = vec4(mix(bottomColor, topColor, h), 1.0);
-        }
-      `,
-    });
-    envScene.add(new THREE.Mesh(envGeo, envMat));
-    const envMap = pmremGenerator.fromScene(envScene, 0.04).texture;
-    scene.environment = envMap;
-    pmremGenerator.dispose();
-
-    // -------------------------------------------------------------------------
-    // Initialize Camera
-    // -------------------------------------------------------------------------
-    const aspect = container.clientWidth / container.clientHeight;
-    const camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    camera.position.set(0.7, 0.2, 1.75); // Closer to model
     cameraRef.current = camera;
-
-    // -------------------------------------------------------------------------
-    // Initialize OrbitControls
-    // -------------------------------------------------------------------------
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08; // Higher = smoother ease-out (was 0.05)
-    controls.rotateSpeed = 0.5; // Lower sensitivity for rotation (default is 1.0)
-    controls.panSpeed = 0.5; // Lower sensitivity for panning (default is 1.0)
-    controls.minDistance = 0.5;
-    controls.maxDistance = 8;
-    controls.target.set(0, 0, 0);
-
-    // Configure controls: LEFT mouse button for orbit/pan (when not on model), middle for zoom
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE, // Will be changed to PAN when in move mode
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: null as any, // Disable right click
-    };
-
-    // Default to rotate mode (pan disabled)
-    controls.enablePan = false;
-    controls.enableRotate = true;
-
     controlsRef.current = controls;
 
-    // -------------------------------------------------------------------------
-    // Initialize Lighting (Showcase/Display Case setup)
-    // Soft, even lighting from multiple angles like a museum display
-    // -------------------------------------------------------------------------
-
-    // Lighting parameters (will be controlled by lil-gui)
-    const lightingParams = {
-      hemiIntensity: 0.6,
-      hemiSkyColor: 0xffffff,
-      hemiGroundColor: 0x888888, // Brighter ground bounce
-      keyIntensity: 1.2,
-      keyColor: 0xffffff,
-      fillIntensity: 0.8, // Stronger fill for even lighting
-      ambientIntensity: 0.4, // Higher ambient for showcase look
-    };
-
-    // -------------------------------------------------------------------------
-    // Optimized Lighting Setup (reduced from 7 lights to 4 for transmission perf)
-    // -------------------------------------------------------------------------
-
-    // Ambient light - higher intensity to compensate for fewer lights
-    const ambientLight = new THREE.AmbientLight(
-      0xffffff,
-      lightingParams.ambientIntensity * 1.2 // Boost to compensate
-    );
-    scene.add(ambientLight);
-
-    // Hemisphere light - combines sky/ground lighting in one efficient light
-    const hemiLight = new THREE.HemisphereLight(
-      lightingParams.hemiSkyColor,
-      lightingParams.hemiGroundColor,
-      lightingParams.hemiIntensity * 1.3 // Boost to replace fill lights
-    );
-    hemiLight.position.set(0, 20, 0);
-    scene.add(hemiLight);
-
-    // Key light - main directional light (front-overhead)
-    const keyLight = new THREE.DirectionalLight(
-      lightingParams.keyColor,
-      lightingParams.keyIntensity
-    );
-    keyLight.position.set(2, 8, 6); // Angled position for good coverage
-    scene.add(keyLight);
-
-    // Single fill light - positioned to cover both sides
-    const fillLight = new THREE.DirectionalLight(
-      0xffffff,
-      lightingParams.fillIntensity * 1.5 // Higher intensity to cover more area
-    );
-    fillLight.position.set(-3, 4, 3);
-    scene.add(fillLight);
-
-    // -------------------------------------------------------------------------
-    // Animation State (for model spin) - uses React ref for syncing
-    // -------------------------------------------------------------------------
-    // modelObjRef is defined at component level for access in event handlers
+    // Destructure lights for GUI access
+    const {
+      ambient: ambientLight,
+      hemisphere: hemiLight,
+      key: keyLight,
+      fill: fillLight,
+    } = lights;
 
     // -------------------------------------------------------------------------
     // Initialize lil-gui for debug controls (development only)
@@ -1025,16 +857,7 @@ export default function Home() {
     // -------------------------------------------------------------------------
     // Handle Window Resize
     // -------------------------------------------------------------------------
-    const handleResize = () => {
-      if (!container) return;
-
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
-    };
+    const handleResize = createResizeHandler(container, camera, renderer);
 
     window.addEventListener("resize", handleResize);
 
@@ -1449,26 +1272,11 @@ export default function Home() {
       // Dispose of lil-gui
       gui?.destroy();
 
-      // Dispose of controls
-      controls.dispose();
-
-      // Dispose of scene objects
-      scene.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry?.dispose();
-          if (Array.isArray(object.material)) {
-            object.material.forEach((mat) => mat.dispose());
-          } else {
-            object.material?.dispose();
-          }
-        }
-      });
-
       // Dispose of paint texture
       paintTexture.dispose();
 
-      // Dispose of renderer
-      renderer.dispose();
+      // Dispose Three.js scene, renderer, and controls
+      disposeThreeScene(renderer, scene, controls);
     };
   }, [selectedModel]);
 
