@@ -17,13 +17,13 @@ export const BRUSH_PRESETS: Record<BrushType, Omit<BrushState, "color">> = {
   [BrushType.Airbrush]: {
     type: BrushType.Airbrush,
     radius: 50,
-    opacity: 0.1,
+    opacity: 0.3,
     hardness: 0.05, // Very soft edges
   },
   [BrushType.Paintbrush]: {
     type: BrushType.Paintbrush,
     radius: 16,
-    opacity: 0.5,
+    opacity: 1,
     hardness: 0.8, // Harder edges
   },
   [BrushType.Fill]: {

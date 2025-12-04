@@ -128,7 +128,7 @@ export default function Home() {
   const lastMoveTimeRef = useRef<number>(0);
   const moveVelocityRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastRotateTimeRef = useRef<number>(0);
-  const rotateVelocityRef = useRef<number>(0);
+  const rotateVelocityRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const thicknessMapRef = useRef<Float32Array | null>(null);
 
@@ -1002,11 +1002,17 @@ export default function Home() {
      *
      * UNDERPAINTING EFFECT:
      * Simulates real paint behavior where underlying layers show through.
+     * 
+     * AIRBRUSH MODE:
+     * Uses conic spray pattern with random particle distribution.
      */
 
     // Cache for brush color parsing (avoid re-parsing same color)
     let cachedColorHex = "";
     let cachedColorRgb = { r: 0, g: 0, b: 0 };
+
+    // Seeded random for consistent spray patterns
+    const seededRandom = () => Math.random();
 
     const paintAtUV = (uv: THREE.Vector2) => {
       const ctx = paintCtxRef.current;
@@ -1065,6 +1071,11 @@ export default function Home() {
       const MAX_COVERAGE = 0.85;
       const brushOpacity = brush.opacity * MAX_COVERAGE;
 
+      // Airbrush conic spray settings
+      const isAirbrush = brush.type === BrushType.Airbrush;
+      // Spray density: how many particles per call (percentage of pixels)
+      const sprayDensity = 0.15; // 15% of pixels get painted each frame
+
       // Blend new color with existing pixels within the brush circle
       for (let dy = 0; dy < height; dy++) {
         const worldY = sy + dy;
@@ -1080,15 +1091,29 @@ export default function Home() {
 
           // Only paint within the brush radius (using squared distance)
           if (distSq <= radiusSq) {
+            const distRatio = Math.sqrt(distSq) / radius;
+
+            // For airbrush: conic spray pattern - random particles with density falling off from center
+            if (isAirbrush) {
+              // Conic distribution: probability decreases with distance from center
+              // This creates a cone-like spray pattern
+              const conicProbability = Math.pow(1 - distRatio, 1.5) * sprayDensity;
+              if (seededRandom() > conicProbability) {
+                continue; // Skip this pixel - not sprayed
+              }
+            }
+
             // Edge falloff based on hardness
             // hardness 0 = very soft gaussian-like falloff
             // hardness 1 = hard edge with minimal falloff
-            const distRatio = Math.sqrt(distSq) / radius;
             const hardness = brush.hardness;
 
             // Compute falloff: soft brushes fade gradually, hard brushes stay solid longer
             let edgeFalloff: number;
-            if (hardness >= 0.95) {
+            if (isAirbrush) {
+              // Airbrush uses softer, more gradual falloff
+              edgeFalloff = Math.pow(1 - distRatio, 0.8);
+            } else if (hardness >= 0.95) {
               // Nearly hard edge
               edgeFalloff = distRatio < 0.9 ? 1 : (1 - distRatio) * 10;
             } else {
@@ -1099,7 +1124,9 @@ export default function Home() {
               edgeFalloff = Math.pow(1 - distRatio, curve);
             }
 
-            const strokeStrength = brushOpacity * edgeFalloff;
+            // Airbrush particles are more opaque individually but sparse
+            const particleOpacity = isAirbrush ? brushOpacity * 2.5 : brushOpacity;
+            const strokeStrength = Math.min(particleOpacity * edgeFalloff, 1);
 
             const idx = rowOffset + dx * 4;
             const thicknessIdx = thicknessRowOffset + worldX;
@@ -1266,7 +1293,7 @@ export default function Home() {
           // Initialize velocity tracking
           lastMousePosRef.current = { x: event.clientX, y: event.clientY };
           lastRotateTimeRef.current = performance.now();
-          rotateVelocityRef.current = 0;
+          rotateVelocityRef.current = { x: 0, y: 0 };
           if (modelPivotRef.current) {
             rotateStartQuaternionRef.current.copy(
               modelPivotRef.current.quaternion
@@ -1403,8 +1430,8 @@ export default function Home() {
         const now = performance.now();
         const dt = now - lastMoveTimeRef.current;
 
-        const deltaX = (event.clientX - dragStartMouseRef.current.x) * 0.003;
-        const deltaY = (event.clientY - dragStartMouseRef.current.y) * -0.003;
+        const deltaX = (event.clientX - dragStartMouseRef.current.x) * 0.0015;
+        const deltaY = (event.clientY - dragStartMouseRef.current.y) * -0.0015;
 
         // Track velocity for momentum (pixels per ms)
         if (dt > 0 && dt < 100) {
@@ -1430,31 +1457,40 @@ export default function Home() {
         return;
       }
 
-      // Handle model rotation in rotate mode - only horizontal (Y-axis) rotation
+      // Handle model rotation in rotate mode - orbit around model center (X and Y axis)
       if (isRotatingModelRef.current && modelPivotRef.current) {
         const now = performance.now();
         const dt = now - lastRotateTimeRef.current;
 
-        const deltaX = (event.clientX - rotateStartMouseRef.current.x) * 0.005;
+        const deltaX = (event.clientX - rotateStartMouseRef.current.x) * 0.003;
+        const deltaY = (event.clientY - rotateStartMouseRef.current.y) * 0.003;
 
         // Track rotational velocity for momentum (pixels per ms)
         if (dt > 0 && dt < 100) {
-          const vr = (event.clientX - lastMousePosRef.current.x) / dt;
-          rotateVelocityRef.current =
-            rotateVelocityRef.current * 0.5 + vr * 0.5;
+          const vrx = (event.clientX - lastMousePosRef.current.x) / dt;
+          const vry = (event.clientY - lastMousePosRef.current.y) / dt;
+          rotateVelocityRef.current = {
+            x: rotateVelocityRef.current.x * 0.5 + vrx * 0.5,
+            y: rotateVelocityRef.current.y * 0.5 + vry * 0.5,
+          };
         }
         lastRotateTimeRef.current = now;
         lastMousePosRef.current = { x: event.clientX, y: event.clientY };
 
-        // Only rotate around Y-axis (horizontal spin) - no tilting
+        // Rotate around Y-axis (horizontal drag) and X-axis (vertical drag)
         const rotationY = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(0, 1, 0),
           deltaX
         );
+        const rotationX = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(1, 0, 0),
+          deltaY
+        );
 
-        // Apply rotation to the initial quaternion
+        // Apply rotations: first Y (horizontal), then X (vertical), then initial
         const newQuaternion = new THREE.Quaternion()
           .copy(rotationY)
+          .multiply(rotationX)
           .multiply(rotateStartQuaternionRef.current);
 
         modelPivotRef.current.quaternion.copy(newQuaternion);
@@ -1482,7 +1518,7 @@ export default function Home() {
             // Rotate mode - use move cursor (4-way arrow) or grabbing when active
             canvas.style.cursor = isRotatingModelRef.current
               ? "grabbing"
-              : "ew-resize";
+              : "move";
           }
         }
 
@@ -1649,11 +1685,11 @@ export default function Home() {
         const vy = moveVelocityRef.current.y;
         const speed = Math.sqrt(vx * vx + vy * vy);
 
-        if (speed > 0.1) {
+        if (speed > 0.05) {
           // Calculate momentum distance (scale velocity)
-          const momentumScale = 150; // How far momentum carries
-          const targetDeltaX = vx * momentumScale * 0.001;
-          const targetDeltaY = -vy * momentumScale * 0.001;
+          const momentumScale = 80; // How far momentum carries
+          const targetDeltaX = vx * momentumScale * 0.0015;
+          const targetDeltaY = -vy * momentumScale * 0.0015;
 
           const cameraRight = new THREE.Vector3();
           const cameraUp = new THREE.Vector3();
@@ -1684,20 +1720,24 @@ export default function Home() {
       // Apply momentum with GSAP ease-out for rotate
       if (wasRotating && modelPivotRef.current) {
         const vr = rotateVelocityRef.current;
+        const hasVelocity = Math.abs(vr.x) > 0.05 || Math.abs(vr.y) > 0.05;
 
-        if (Math.abs(vr) > 0.1) {
+        if (hasVelocity) {
           // Calculate momentum rotation
-          const momentumScale = 200;
-          const targetDeltaRotation = vr * momentumScale * 0.005;
+          const momentumScale = 100;
+          const targetDeltaRotationY = vr.x * momentumScale * 0.003;
+          const targetDeltaRotationX = vr.y * momentumScale * 0.003;
 
-          // Get current Y rotation from quaternion
+          // Get current rotation from quaternion
           const euler = new THREE.Euler().setFromQuaternion(
             modelPivotRef.current.quaternion,
             "YXZ"
           );
-          const targetY = euler.y + targetDeltaRotation;
+          const targetY = euler.y + targetDeltaRotationY;
+          const targetX = euler.x + targetDeltaRotationX;
 
           gsap.to(euler, {
+            x: targetX,
             y: targetY,
             duration: 0.6,
             ease: "power2.out",
@@ -1710,7 +1750,7 @@ export default function Home() {
         }
 
         // Reset velocity
-        rotateVelocityRef.current = 0;
+        rotateVelocityRef.current = { x: 0, y: 0 };
       }
     };
 
@@ -1721,12 +1761,43 @@ export default function Home() {
       event.preventDefault();
     };
 
+    /**
+     * Handle mouse wheel for zooming (move camera closer/further)
+     */
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      
+      const zoomSpeed = 0.001;
+      const delta = event.deltaY * zoomSpeed;
+      
+      // Move camera along its forward direction
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      
+      // Calculate new position
+      const newPos = camera.position.clone();
+      newPos.addScaledVector(direction, -delta);
+      
+      // Clamp zoom distance (don't get too close or too far)
+      const distanceToOrigin = newPos.length();
+      if (distanceToOrigin > 1 && distanceToOrigin < 15) {
+        gsap.to(camera.position, {
+          x: newPos.x,
+          y: newPos.y,
+          z: newPos.z,
+          duration: 0.15,
+          ease: "power2.out",
+        });
+      }
+    };
+
     // Add event listeners (keyboard shortcuts handled by useKeyboardShortcuts hook)
     canvas.addEventListener("pointerdown", handlePointerDown);
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerup", handlePointerUp);
     canvas.addEventListener("pointerleave", handlePointerLeave);
     canvas.addEventListener("contextmenu", handleContextMenu);
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
 
     // -------------------------------------------------------------------------
     // Cleanup
@@ -1745,6 +1816,7 @@ export default function Home() {
       canvas.removeEventListener("pointerup", handlePointerUp);
       canvas.removeEventListener("pointerleave", handlePointerLeave);
       canvas.removeEventListener("contextmenu", handleContextMenu);
+      canvas.removeEventListener("wheel", handleWheel);
 
       // Dispose of lil-gui
       gui?.destroy();
