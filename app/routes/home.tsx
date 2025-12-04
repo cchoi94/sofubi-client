@@ -62,8 +62,8 @@ import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
 
 export function meta({}: Route.MetaArgs) {
   const siteUrl = "https://sofubi.art"; // Update with your actual domain
-  const videoUrl = `${siteUrl}/assets/videos/embed-video.mp4`;
-  const thumbnailUrl = `${siteUrl}/assets/videos/embed-thumbnail.jpg`; // You should create this
+  const videoUrl = `${siteUrl}/assets/videos/og-video.mp4`;
+  const thumbnailUrl = `${siteUrl}/favicon.ico`; // Favicon as fallback image
 
   return [
     { title: "Sofubi" },
