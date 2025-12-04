@@ -53,7 +53,7 @@ import { TopRightToolbar } from "~/components/TopRightToolbar";
 import { ShareModal } from "~/components/ShareModal";
 
 // Hooks
-import { useKeyboardShortcuts } from "~/hooks";
+import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
 
 // ============================================================================
 // META FUNCTION
@@ -122,6 +122,18 @@ export default function Home() {
 
   // Shader system refs
   const currentShaderIdRef = useRef<string>(DEFAULT_SHADER_ID);
+
+  // Paint persistence hook - auto-saves to localStorage
+  const { saveState: savePaintState, restoreToCanvas } = usePaintPersistence(
+    paintCtxRef,
+    paintTextureRef,
+    thicknessMapRef,
+    currentShaderIdRef,
+    {
+      autoSaveInterval: 30000, // Auto-save every 30 seconds
+    }
+  );
+
   const shaderConfigRef = useRef<ShaderConfig | null>(null);
   const shaderGuiControllerRef = useRef<GUI | null>(null);
   const paintableMeshesRef = useRef<THREE.Mesh[]>([]);
@@ -918,6 +930,22 @@ export default function Home() {
           // Optional: disable transparency after fade completes
         });
 
+        // Try to restore saved paint state from localStorage
+        const ctx = paintCtxRef.current;
+        const texture = paintTextureRef.current;
+        const thicknessMap = thicknessMapRef.current;
+        if (ctx && texture && thicknessMap) {
+          restoreToCanvas(ctx, texture, thicknessMap).then(
+            (restored: boolean) => {
+              if (restored) {
+                console.log(
+                  "Restored previous paint session from localStorage"
+                );
+              }
+            }
+          );
+        }
+
         setIsLoading(false);
 
         // Update controls target to model center
@@ -1479,6 +1507,7 @@ export default function Home() {
     canvasSize: PAINT_CANVAS_SIZE,
     setCursorMode,
     handleBrushChange,
+    onSave: savePaintState,
   });
 
   // ============================================================================

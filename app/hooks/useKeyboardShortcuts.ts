@@ -34,6 +34,9 @@ export interface KeyboardShortcutsConfig {
   setCursorMode: (mode: CursorMode) => void;
   handleBrushChange: (brush: Partial<BrushState>) => void;
 
+  // Save callback for Cmd+S
+  onSave?: () => void;
+
   // Orbit animation settings
   orbitAngle?: number;
   orbitDuration?: number;
@@ -62,6 +65,7 @@ export function useKeyboardShortcuts({
   canvasSize,
   setCursorMode,
   handleBrushChange,
+  onSave,
   orbitAngle = 0.3,
   orbitDuration = 0.5,
 }: KeyboardShortcutsConfig) {
@@ -204,6 +208,13 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      // Handle Cmd+S / Ctrl+S for save
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        onSave?.();
+        return;
+      }
+
       // Handle Cmd+Z / Ctrl+Z for undo, Cmd+Shift+Z / Ctrl+Shift+Z for redo
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -245,7 +256,14 @@ export function useKeyboardShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleUndo, handleRedo, handleOrbit, setCursorMode, handleBrushChange]);
+  }, [
+    handleUndo,
+    handleRedo,
+    handleOrbit,
+    setCursorMode,
+    handleBrushChange,
+    onSave,
+  ]);
 
   // Return handlers for potential external use
   return {
