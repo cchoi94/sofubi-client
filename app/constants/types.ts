@@ -8,6 +8,7 @@
 export enum BrushType {
   Airbrush = "airbrush",
   Paintbrush = "paintbrush",
+  Fill = "fill",
 }
 
 /**

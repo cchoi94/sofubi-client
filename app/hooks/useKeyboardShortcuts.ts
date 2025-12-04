@@ -252,6 +252,8 @@ export function useKeyboardShortcuts({
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Airbrush] });
       } else if (key === HOTKEYS.BRUSH_PAINTBRUSH) {
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
+      } else if (key === HOTKEYS.BRUSH_FILL) {
+        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Fill] });
       }
     };
 

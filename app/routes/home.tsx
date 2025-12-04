@@ -30,6 +30,18 @@ import {
   disposeThreeScene,
 } from "~/three-utils";
 
+// Fill brush utilities
+import {
+  buildUVIslands,
+  findIslandFromFace,
+  fillIslandOnCanvas,
+} from "~/three-utils/floodFill";
+import type { FloodFillResult, UVIsland } from "~/three-utils/floodFill";
+import { createHighlightManager } from "~/three-utils/sectionHighlight";
+import type { HighlightManager } from "~/three-utils/sectionHighlight";
+import { createSporeEmitter } from "~/three-utils/sporeParticles";
+import type { SporeEmitter } from "~/three-utils/sporeParticles";
+
 // Shaders
 import {
   shaders,
@@ -46,6 +58,7 @@ import {
   getBaseColorForShader,
   CursorMode,
   HOTKEYS,
+  BrushType,
 } from "~/constants";
 import type {
   BrushState,
@@ -149,6 +162,16 @@ export default function Home() {
       }
     >
   >(new Map());
+
+  // Fill brush system refs
+  const uvIslandsRef = useRef<Map<THREE.Mesh, FloodFillResult>>(new Map());
+  const highlightManagerRef = useRef<HighlightManager | null>(null);
+  const sporeEmitterRef = useRef<SporeEmitter | null>(null);
+  const hoveredIslandRef = useRef<{
+    island: UVIsland;
+    islandIndex: number;
+    mesh: THREE.Mesh;
+  } | null>(null);
 
   // React state for UI
   const [selectedModel, setSelectedModel] = useState<ModelOption>(
@@ -813,6 +836,28 @@ export default function Home() {
           );
         }
 
+        // Build UV islands for fill brush feature
+        uvIslandsRef.current.clear();
+        paintableMeshes.forEach((mesh) => {
+          if (mesh.geometry) {
+            const islands = buildUVIslands(mesh.geometry);
+            uvIslandsRef.current.set(mesh, islands);
+            console.log(`Built ${islands.islands.length} UV islands for mesh`);
+          }
+        });
+
+        // Initialize fill brush highlight manager and spore emitter
+        highlightManagerRef.current = createHighlightManager(scene);
+        sporeEmitterRef.current = createSporeEmitter(scene, {
+          maxParticles: 150,
+          particleSize: 0.012,
+          emissionRate: 40,
+          speed: 0.2,
+          lifetime: 1.2,
+          gravity: 0.08,
+          spread: 0.3,
+        });
+
         setIsLoading(false);
 
         // Update controls target to model center
@@ -832,7 +877,13 @@ export default function Home() {
     // -------------------------------------------------------------------------
     // Animation Loop
     // -------------------------------------------------------------------------
+    let animationTime = 0;
+    const clock = new THREE.Clock();
+
     const animate = () => {
+      const deltaTime = clock.getDelta();
+      animationTime += deltaTime;
+
       controls.update();
       updateCursorSmooth(); // Smooth cursor interpolation
 
@@ -848,6 +899,16 @@ export default function Home() {
         brushRef.current.type === "airbrush"
       ) {
         paintAtUV(lastPaintUV);
+      }
+
+      // Update fill brush highlight animation
+      if (highlightManagerRef.current) {
+        highlightManagerRef.current.update(animationTime);
+      }
+
+      // Update spore particle system
+      if (sporeEmitterRef.current) {
+        sporeEmitterRef.current.update(deltaTime);
       }
 
       renderer.render(scene, camera);
@@ -1032,6 +1093,8 @@ export default function Home() {
       uv: THREE.Vector2;
       point: THREE.Vector3;
       normal: THREE.Vector3;
+      faceIndex: number;
+      mesh: THREE.Mesh;
     }
 
     const raycast = (
@@ -1067,7 +1130,9 @@ export default function Home() {
         if (
           intersect.uv &&
           intersect.object instanceof THREE.Mesh &&
-          intersect.face
+          intersect.face &&
+          intersect.faceIndex !== undefined &&
+          intersect.faceIndex !== null
         ) {
           return {
             uv: intersect.uv.clone(),
@@ -1075,6 +1140,8 @@ export default function Home() {
             normal: intersect.face.normal
               .clone()
               .transformDirection(intersect.object.matrixWorld),
+            faceIndex: intersect.faceIndex,
+            mesh: intersect.object,
           };
         }
       }
@@ -1095,16 +1162,18 @@ export default function Home() {
     const handlePointerDown = (event: PointerEvent) => {
       // Only handle LEFT mouse button (button === 0)
       if (event.button === 0) {
-        const uv = raycastToUV(event);
+        const result = raycast(event);
 
-        if (uv) {
-          // We hit the model - disable controls, start painting
+        if (result) {
+          // We hit the model - disable controls
           controls.enabled = false;
           event.preventDefault();
 
-          // Save current state for undo before painting
+          // Get paint context
           const ctx = paintCtxRef.current;
           const thicknessMap = thicknessMapRef.current;
+
+          // Save current state for undo before painting
           if (ctx && thicknessMap) {
             const imageData = ctx.getImageData(
               0,
@@ -1125,9 +1194,82 @@ export default function Home() {
             redoHistoryRef.current = [];
           }
 
-          isPaintingRef.current = true;
-          lastPaintUV = uv.clone();
-          paintAtUV(uv);
+          // Handle Fill brush - fill the entire UV island
+          if (brushRef.current.type === BrushType.Fill && ctx) {
+            console.log(
+              "Fill click - ctx:",
+              !!ctx,
+              "result.mesh:",
+              result.mesh.name || result.mesh.uuid
+            );
+
+            // Try to find island data - check both the hit mesh and all stored meshes
+            let islandData = uvIslandsRef.current.get(result.mesh);
+            let targetMesh = result.mesh;
+
+            console.log(
+              "Direct lookup:",
+              !!islandData,
+              "uvIslandsRef size:",
+              uvIslandsRef.current.size
+            );
+
+            // If not found, try to find by geometry match
+            if (!islandData) {
+              for (const [mesh, data] of uvIslandsRef.current.entries()) {
+                console.log(
+                  "Checking mesh:",
+                  mesh.name || mesh.uuid,
+                  "geometry match:",
+                  mesh.geometry === result.mesh.geometry
+                );
+                if (mesh.geometry === result.mesh.geometry) {
+                  islandData = data;
+                  targetMesh = mesh;
+                  break;
+                }
+              }
+            }
+
+            console.log(
+              "Final islandData:",
+              !!islandData,
+              "faceIndex:",
+              result.faceIndex
+            );
+
+            if (islandData) {
+              const island = findIslandFromFace(result.faceIndex, islandData);
+              console.log(
+                "Found island:",
+                !!island,
+                island ? `${island.triangleIndices.length} triangles` : "none"
+              );
+              if (island) {
+                console.log(
+                  "Calling fillIslandOnCanvas with color:",
+                  brushRef.current.color
+                );
+                fillIslandOnCanvas(
+                  island,
+                  targetMesh.geometry,
+                  ctx,
+                  PAINT_CANVAS_SIZE,
+                  brushRef.current.color
+                );
+                const texture = paintTextureRef.current;
+                if (texture) {
+                  texture.needsUpdate = true;
+                  console.log("Texture marked for update");
+                }
+              }
+            }
+          } else if (brushRef.current.type !== BrushType.Fill) {
+            // Regular brush painting
+            isPaintingRef.current = true;
+            lastPaintUV = result.uv.clone();
+            paintAtUV(result.uv);
+          }
         } else {
           // Clicked outside model
           if (cursorModeRef.current === CursorMode.Move) {
@@ -1190,11 +1332,65 @@ export default function Home() {
           }
 
           // Update cursor appearance based on current brush settings
-          updateBrushCursor(brushRef.current.radius, brushRef.current.color);
+          // Hide cursor for Fill brush (we use highlight instead)
+          if (brushRef.current.type === BrushType.Fill) {
+            cursor.visible = false;
+          } else {
+            updateBrushCursor(brushRef.current.radius, brushRef.current.color);
+          }
         }
 
-        // Paint if in painting mode
-        if (isPaintingRef.current) {
+        // Handle Fill brush - show highlight and spores on hover
+        if (brushRef.current.type === BrushType.Fill) {
+          const islandData = uvIslandsRef.current.get(result.mesh);
+          if (islandData) {
+            const island = findIslandFromFace(result.faceIndex, islandData);
+            const islandIndex =
+              islandData.triangleToIsland.get(result.faceIndex) ?? null;
+
+            if (island && islandIndex !== null) {
+              // Update highlight
+              if (highlightManagerRef.current) {
+                highlightManagerRef.current.setHighlight(
+                  island,
+                  islandIndex,
+                  result.mesh.geometry,
+                  result.mesh,
+                  brushRef.current.color
+                );
+              }
+
+              // Update spore emitter
+              if (sporeEmitterRef.current) {
+                sporeEmitterRef.current.setSource(
+                  island,
+                  result.mesh.geometry,
+                  result.mesh
+                );
+                sporeEmitterRef.current.setColor(brushRef.current.color);
+                sporeEmitterRef.current.setEmitting(true);
+              }
+
+              hoveredIslandRef.current = {
+                island,
+                islandIndex,
+                mesh: result.mesh,
+              };
+            }
+          }
+        } else {
+          // Not fill brush - clear highlight and spores
+          if (highlightManagerRef.current) {
+            highlightManagerRef.current.setHighlight(null, null, null, null);
+          }
+          if (sporeEmitterRef.current) {
+            sporeEmitterRef.current.setEmitting(false);
+          }
+          hoveredIslandRef.current = null;
+        }
+
+        // Paint if in painting mode (not for fill brush)
+        if (isPaintingRef.current && brushRef.current.type !== BrushType.Fill) {
           lastPaintUV = result.uv.clone();
           paintAtUV(result.uv);
         }
@@ -1213,6 +1409,15 @@ export default function Home() {
           cursorInitialized = false; // Reset so next hit snaps immediately
         }
         lastPaintUV = null; // Clear paint UV when off model
+
+        // Clear fill brush highlight and spores when off model
+        if (highlightManagerRef.current) {
+          highlightManagerRef.current.setHighlight(null, null, null, null);
+        }
+        if (sporeEmitterRef.current) {
+          sporeEmitterRef.current.setEmitting(false);
+        }
+        hoveredIslandRef.current = null;
       }
     };
 
@@ -1226,6 +1431,15 @@ export default function Home() {
       if (cursor) {
         cursor.visible = false;
       }
+
+      // Clear fill brush state
+      if (highlightManagerRef.current) {
+        highlightManagerRef.current.setHighlight(null, null, null, null);
+      }
+      if (sporeEmitterRef.current) {
+        sporeEmitterRef.current.setEmitting(false);
+      }
+      hoveredIslandRef.current = null;
     };
 
     /**
@@ -1274,6 +1488,17 @@ export default function Home() {
 
       // Dispose of paint texture
       paintTexture.dispose();
+
+      // Dispose fill brush systems
+      if (highlightManagerRef.current) {
+        highlightManagerRef.current.dispose();
+        highlightManagerRef.current = null;
+      }
+      if (sporeEmitterRef.current) {
+        sporeEmitterRef.current.dispose();
+        sporeEmitterRef.current = null;
+      }
+      uvIslandsRef.current.clear();
 
       // Dispose Three.js scene, renderer, and controls
       disposeThreeScene(renderer, scene, controls);

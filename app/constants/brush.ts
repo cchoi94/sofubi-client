@@ -26,6 +26,12 @@ export const BRUSH_PRESETS: Record<BrushType, Omit<BrushState, "color">> = {
     opacity: 1.0,
     hardness: 0.8, // Harder edges
   },
+  [BrushType.Fill]: {
+    type: BrushType.Fill,
+    radius: 1, // Not used for fill, but required by type
+    opacity: 1.0,
+    hardness: 1.0,
+  },
 };
 
 /**

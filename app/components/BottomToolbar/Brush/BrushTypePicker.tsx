@@ -1,4 +1,9 @@
-import { Brush as BrushIcon, ChevronDown, SprayCan } from "lucide-react";
+import {
+  Brush as BrushIcon,
+  ChevronDown,
+  PaintBucket,
+  SprayCan,
+} from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -62,6 +67,8 @@ export function BrushTypePicker({
             >
               {brush.type === BrushType.Airbrush ? (
                 <SprayCan className="w-4 h-4" />
+              ) : brush.type === BrushType.Fill ? (
+                <PaintBucket className="w-4 h-4" />
               ) : (
                 <BrushIcon className="w-4 h-4" />
               )}
@@ -70,7 +77,13 @@ export function BrushTypePicker({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top">
-          <p>{brush.type === BrushType.Airbrush ? "Airbrush" : "Paintbrush"}</p>
+          <p>
+            {brush.type === BrushType.Airbrush
+              ? "Airbrush"
+              : brush.type === BrushType.Fill
+                ? "Fill"
+                : "Paintbrush"}
+          </p>
         </TooltipContent>
       </Tooltip>
       <PopoverContent className="w-48 p-2" align="center" side="top">
@@ -109,24 +122,42 @@ export function BrushTypePicker({
                 {getHotkeyLabel(HOTKEYS.BRUSH_PAINTBRUSH)}
               </span>
             </button>
+            <button
+              className={cn(
+                "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+                "text-zinc-300 hover:bg-zinc-800 hover:text-white focus:bg-zinc-800",
+                {
+                  "bg-zinc-700 text-white": brush.type === BrushType.Fill,
+                }
+              )}
+              onClick={() => handleBrushTypeChange(BrushType.Fill)}
+            >
+              <PaintBucket className="w-4 h-4" />
+              Fill
+              <span className="ml-auto text-xs text-zinc-500">
+                {getHotkeyLabel(HOTKEYS.BRUSH_FILL)}
+              </span>
+            </button>
           </div>
 
           <Separator />
 
-          {/* Brush Size Slider */}
-          <div className="space-y-2 px-1 pb-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Size</Label>
-              <span className="text-xs text-zinc-500">{brush.radius}px</span>
+          {/* Brush Size Slider - hide for Fill brush */}
+          {brush.type !== BrushType.Fill && (
+            <div className="space-y-2 px-1 pb-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Size</Label>
+                <span className="text-xs text-zinc-500">{brush.radius}px</span>
+              </div>
+              <Slider
+                min={5}
+                max={brush.type === BrushType.Airbrush ? 150 : 100}
+                step={1}
+                value={[brush.radius]}
+                onValueChange={([value]) => onBrushChange({ radius: value })}
+              />
             </div>
-            <Slider
-              min={5}
-              max={brush.type === BrushType.Airbrush ? 150 : 100}
-              step={1}
-              value={[brush.radius]}
-              onValueChange={([value]) => onBrushChange({ radius: value })}
-            />
-          </div>
+          )}
         </div>
       </PopoverContent>
     </Popover>

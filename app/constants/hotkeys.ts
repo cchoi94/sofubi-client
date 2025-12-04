@@ -15,6 +15,7 @@ export const HOTKEYS = {
   // Brush shortcuts
   BRUSH_AIRBRUSH: "1",
   BRUSH_PAINTBRUSH: "2",
+  BRUSH_FILL: "3",
 
   // Camera orbit shortcuts
   ORBIT_LEFT: "ArrowLeft",
