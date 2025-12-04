@@ -22,7 +22,7 @@ import gsap from "gsap";
 import GUI from "lil-gui";
 
 // Three.js setup utilities
-import { loadModel, animateModelFadeIn } from "~/three";
+import { loadModel, animateModelFadeIn } from "~/three-utils";
 
 // Shaders
 import {
