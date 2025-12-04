@@ -4,7 +4,7 @@ export const META_CONFIG = {
   title: "Sofubi",
   description: "Paint directly on 3D models in your browser",
   siteName: "Sofubi",
-  videoUrl: `${SITE_URL}/assets/videos/og-video.mp4`,
+  videoUrl: `${SITE_URL}/assets/videos/og-video2.mp4`,
   thumbnailUrl: `${SITE_URL}/favicon.ico`,
   video: {
     width: "1200",
