@@ -654,9 +654,10 @@ export default function Home() {
     // -------------------------------------------------------------------------
     loadModel(selectedModel.path, scene, paintTexture, {
       onProgress: (percent) => {
-        console.log(`Loading model: ${percent.toFixed(1)}%`);
+        // console.log(`Loading model: ${percent.toFixed(1)}%`);
       },
       onComplete: ({ model, paintableMeshes, materialPropsMap, scale }) => {
+        console.log("Model loaded:", selectedModel.name);
         // Store original material properties for shader system
         materialPropsMap.forEach((props, mesh) => {
           originalMaterialPropsRef.current.set(mesh, props);
@@ -1584,17 +1585,6 @@ export default function Home() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden">
-      {/* Infinite Dot Grid Background */}
-      <div
-        className="fixed inset-0 z-0"
-        style={{
-          backgroundColor: "#18181b",
-          backgroundImage:
-            "radial-gradient(circle, #52525b 1.5px, transparent 1.5px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
-
       {/* 3D Canvas Container */}
       <div ref={containerRef} className="flex-1 relative z-10 bg-transparent">
         <canvas

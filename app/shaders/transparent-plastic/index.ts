@@ -38,7 +38,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.2,
+    default: 0.7,
   },
   {
     name: "clearcoat",
@@ -71,40 +71,43 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates a frosted plastic material following the Codrops approach:
- * https://tympanus.net/codrops/2021/10/27/creating-the-effect-of-transparent-glass-and-plastic-in-three-js/
+ * Creates a frosted plastic material with transmission.
  *
- * Frosted glass/plastic uses:
- * - High roughness (0.7) for frosted diffusion
- * - clearcoat for shiny surface on top of frosted material
- * - normalMap affects transmission texture
- * - clearcoatNormalMap affects surface finish texture
+ * Key difference from glass: higher roughness (0.7) for frosted look
+ * Plus clearcoat for that shiny plastic surface.
  */
 function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
-    // Core properties from Codrops
-    metalness: 0, // Non-metallic
-    roughness: 0.7, // Frosted/diffused - key for plastic look!
-    transmission: 1, // Fully transparent
-    thickness: 1.0, // Higher thickness for more pronounced frosting
+    // Essential for transmission to work
+    transparent: true,
 
-    // Refraction
-    ior: 1.5, // Standard glass/plastic IOR
+    // Core properties - roughness is key for frosted look
+    metalness: 0,
+    roughness: 0.7, // Frosted/diffused!
+    transmission: 1,
+    thickness: 1.0,
+    ior: 1.5,
 
-    // Clearcoat - shiny surface on frosted material (like polished plastic)
+    // Clearcoat - shiny surface on top of frosted material
     clearcoat: 1.0,
-    clearcoatRoughness: 0.1, // Smooth clearcoat surface
+    clearcoatRoughness: 0.1,
 
-    // Color and reflections
-    color: new THREE.Color("#e8eaec"), // Slight tint
+    // Color - slight tint
+    color: new THREE.Color("#e8eaec"),
     envMapIntensity: 1.0,
 
-    // Textures - normalMap affects frosted transmission, clearcoatNormalMap affects shiny surface
+    // Paint texture
     map: config.paintTexture,
+
+    // Normal maps
     normalMap: config.normalMap ?? null,
     normalScale: new THREE.Vector2(0.3, 0.3),
     clearcoatNormalMap: config.normalMap ?? null,
     clearcoatNormalScale: new THREE.Vector2(0.1, 0.1),
+
+    // Attenuation
+    attenuationColor: new THREE.Color("#ffffff"),
+    attenuationDistance: 0.5,
   });
 
   return material;
@@ -152,7 +155,7 @@ function dispose(material: THREE.Material): void {
 // ============================================================================
 
 export const transparentPlasticShader: CustomShader = {
-  name: "Clear Plastic",
+  name: "Frosted Plastic",
   id: "transparent-plastic",
   description: "See-through frosted plastic with shiny surface",
   createMaterial,

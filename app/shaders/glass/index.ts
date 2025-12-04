@@ -31,7 +31,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 2,
     step: 0.01,
-    default: 1.5, // Higher for more refraction
+    default: 0.5,
   },
   {
     name: "roughness",
@@ -39,7 +39,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.05, // Slight roughness to soften aliasing
+    default: 0.0,
   },
   {
     name: "ior",
@@ -50,28 +50,12 @@ const guiParams: ShaderGuiParam[] = [
     default: 1.5,
   },
   {
-    name: "clearcoat",
-    type: "number",
-    min: 0,
-    max: 1,
-    step: 0.01,
-    default: 1.0, // Shiny surface coating
-  },
-  {
-    name: "clearcoatRoughness",
-    type: "number",
-    min: 0,
-    max: 1,
-    step: 0.01,
-    default: 0.0, // Perfectly smooth clearcoat
-  },
-  {
     name: "envMapIntensity",
     type: "number",
     min: 0,
     max: 3,
     step: 0.01,
-    default: 1.5, // Strong environment reflections
+    default: 1.0,
   },
 ];
 
@@ -80,40 +64,47 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates a clear glass material following the Codrops approach:
- * https://tympanus.net/codrops/2021/10/27/creating-the-effect-of-transparent-glass-and-plastic-in-three-js/
+ * Creates a clear glass material with proper transmission/refraction.
  *
- * Key insights from Codrops:
- * - thickness is "the magic" for refraction
- * - Small roughness (0.05-0.15) helps soften aliasing
- * - clearcoat adds polished surface reflections
- * - Always use envMap for best results
+ * Key settings for working transmission:
+ * - transmission: 1 (fully transparent)
+ * - thickness: controls refraction distortion amount
+ * - roughness: 0 for clear glass, higher for frosted
+ * - ior: index of refraction (1.5 for glass)
+ * - transparent: must be true for transmission to work
  */
 function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
-    // Core glass properties from Codrops
-    metalness: 0, // Non-metallic - essential for glass
-    roughness: 0.05, // Slight roughness to soften aliasing on transmitted content
-    transmission: 1, // Fully transparent
-    thickness: 1.5, // Higher thickness for more pronounced refraction
+    // Essential for transmission to work
+    transparent: true,
 
-    // Refraction settings
-    ior: 1.5, // Index of refraction (glass ~1.5)
+    // Core glass properties
+    metalness: 0,
+    roughness: 0,
+    transmission: 1,
+    thickness: 0.5,
+    ior: 1.5,
 
-    // Clearcoat - adds polished surface reflections
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.0, // Smooth surface
-
-    // Color and reflections
+    // Color - white for clear glass
     color: new THREE.Color("#ffffff"),
-    envMapIntensity: 1.5, // Strong reflections
 
-    // Textures
+    // Reflections
+    envMapIntensity: 1.0,
+
+    // Paint texture
     map: config.paintTexture,
+
+    // Normal map for surface detail
     normalMap: config.normalMap ?? null,
-    normalScale: new THREE.Vector2(0.3, 0.3),
-    clearcoatNormalMap: config.normalMap ?? null, // Surface finish texture
-    clearcoatNormalScale: new THREE.Vector2(0.1, 0.1),
+    normalScale: new THREE.Vector2(0.5, 0.5),
+
+    // Attenuation - tints light as it passes through
+    attenuationColor: new THREE.Color("#ffffff"),
+    attenuationDistance: 0.5,
+
+    // Specular settings for better reflections
+    specularIntensity: 1,
+    specularColor: new THREE.Color("#ffffff"),
   });
 
   return material;
@@ -139,10 +130,6 @@ function updateUniforms(
       mat.roughness = value;
     } else if (key === "ior") {
       mat.ior = value;
-    } else if (key === "clearcoat") {
-      mat.clearcoat = value;
-    } else if (key === "clearcoatRoughness") {
-      mat.clearcoatRoughness = value;
     } else if (key === "envMapIntensity") {
       mat.envMapIntensity = value;
     }

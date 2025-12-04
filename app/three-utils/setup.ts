@@ -140,6 +140,61 @@ export function createScene(): THREE.Scene {
   return new THREE.Scene();
 }
 
+/**
+ * Creates a dot grid texture that matches CSS pattern
+ * Renders dots at the correct pixel density for the screen, centered
+ */
+function createDotGridTexture(
+  width: number,
+  height: number
+): THREE.CanvasTexture {
+  const dotSpacing = 24; // CSS backgroundSize: 24px 24px
+  const dotRadius = 1.5; // CSS: 1.5px
+  const bgColor = "#18181b";
+  const dotColor = "#52525b";
+
+  // Create canvas at screen resolution
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  // Fill background
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, width, height);
+
+  // Calculate centered grid
+  // Number of dots that fit in each dimension
+  const cols = Math.ceil(width / dotSpacing) + 1;
+  const rows = Math.ceil(height / dotSpacing) + 1;
+
+  // Center the grid by calculating offset
+  const totalGridWidth = (cols - 1) * dotSpacing;
+  const totalGridHeight = (rows - 1) * dotSpacing;
+  const offsetX = (width - totalGridWidth) / 2;
+  const offsetY = (height - totalGridHeight) / 2;
+
+  // Draw centered dots
+  ctx.fillStyle = dotColor;
+  for (let col = 0; col < cols; col++) {
+    for (let row = 0; row < rows; row++) {
+      const x = offsetX + col * dotSpacing;
+      const y = offsetY + row * dotSpacing;
+      ctx.beginPath();
+      ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // Don't repeat - texture is full screen size
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+
+  return texture;
+}
+
 export function createEnvironmentMap(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene
@@ -178,6 +233,11 @@ export function createEnvironmentMap(
   envScene.add(new THREE.Mesh(envGeo, envMat));
   const envMap = pmremGenerator.fromScene(envScene, 0.04).texture;
   scene.environment = envMap;
+
+  // Create dot grid background at renderer size for glass transmission
+  const size = renderer.getSize(new THREE.Vector2());
+  scene.background = createDotGridTexture(size.x, size.y);
+
   pmremGenerator.dispose();
 
   return envMap;
