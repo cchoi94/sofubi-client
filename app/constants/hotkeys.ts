@@ -8,14 +8,14 @@
  * changed and the UI will automatically reflect the new bindings.
  */
 export const HOTKEYS = {
-  // Cursor mode shortcuts
-  CURSOR_MOVE: "q",
-  CURSOR_ROTATE: "w",
+  // Cursor mode hold-to-override shortcuts
+  CURSOR_MOVE_HOLD: " ", // spacebar
+  CURSOR_ROTATE_HOLD: "r",
 
   // Brush shortcuts
-  BRUSH_AIRBRUSH: "1",
-  BRUSH_PAINTBRUSH: "2",
-  BRUSH_FILL: "3",
+  BRUSH_AIRBRUSH: "a",
+  BRUSH_PAINTBRUSH: "b",
+  BRUSH_FILL: "f",
 
   // Camera orbit shortcuts
   ORBIT_LEFT: "ArrowLeft",
@@ -29,6 +29,7 @@ export const HOTKEYS = {
  * Maps the key code to a human-readable label.
  */
 export const HOTKEY_LABELS: Record<string, string> = {
+  " ": "Space",
   ArrowLeft: "←",
   ArrowRight: "→",
   ArrowUp: "↑",

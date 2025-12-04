@@ -71,9 +71,16 @@ import { BottomToolbar, useBrush } from "~/components/BottomToolbar";
 import { TopRightToolbar } from "~/components/TopRightToolbar";
 import { ShareModal } from "~/components/ShareModal";
 import { LoadingDotsOverlay } from "~/components/LoadingDotsOverlay/LoadingDotsOverlay";
+import { ModelSelectorModal } from "~/components/ModelSelectorModal";
 
 // Hooks
-import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
+import {
+  useKeyboardShortcuts,
+  usePaintPersistence,
+  getLastSelectedModelId,
+  checkHasAnySavedPaintState,
+} from "~/hooks";
+import { findModelById } from "~/constants/models";
 
 // ============================================================================
 // META FUNCTION
@@ -97,6 +104,7 @@ export default function Home() {
   const controlsRef = useRef<OrbitControls | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
   const modelObjRef = useRef<THREE.Object3D | null>(null); // Reference to loaded model for translation
+  const modelPivotRef = useRef<THREE.Group | null>(null); // Pivot group for rotation around center
 
   // Paint system refs
   const paintCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,8 +117,19 @@ export default function Home() {
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
   const isDraggingModelRef = useRef<boolean>(false); // For move mode dragging
+  const isRotatingModelRef = useRef<boolean>(false); // For rotate mode dragging
   const dragStartMouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const dragStartModelPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const rotateStartMouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
+  const rotateStartQuaternionRef = useRef<THREE.Quaternion>(
+    new THREE.Quaternion()
+  );
+  // Velocity tracking for momentum on release
+  const lastMoveTimeRef = useRef<number>(0);
+  const moveVelocityRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastRotateTimeRef = useRef<number>(0);
+  const rotateVelocityRef = useRef<number>(0);
+  const lastMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const thicknessMapRef = useRef<Float32Array | null>(null);
 
   // Undo/Redo system refs
@@ -135,12 +154,23 @@ export default function Home() {
   // Shader system refs
   const currentShaderIdRef = useRef<string>(DEFAULT_SHADER_ID);
 
+  // Model ID ref for persistence
+  const currentModelIdRef = useRef<string>(AVAILABLE_MODELS[0].id);
+
   // Paint persistence hook - auto-saves to localStorage
-  const { saveState: savePaintState, restoreToCanvas } = usePaintPersistence(
+  const {
+    saveState: savePaintState,
+    restoreToCanvas,
+    hasAnySavedState,
+    hasSavedState,
+    getLastModelId,
+    setLastModelId,
+  } = usePaintPersistence(
     paintCtxRef,
     paintTextureRef,
     thicknessMapRef,
     currentShaderIdRef,
+    currentModelIdRef,
     {
       autoSaveInterval: 30000, // Auto-save every 30 seconds
     }
@@ -173,10 +203,13 @@ export default function Home() {
     mesh: THREE.Mesh;
   } | null>(null);
 
-  // React state for UI
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(
-    AVAILABLE_MODELS[0]
-  ); // Default to Godzilla
+  // Track if we've initialized from localStorage (to avoid hydration mismatch)
+  const hasInitializedRef = useRef<boolean>(false);
+
+  // React state for UI - start with null/true to avoid SSR mismatch
+  // localStorage check happens in useEffect after mount
+  const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
+  const [showModelSelector, setShowModelSelector] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string>("");
@@ -185,30 +218,49 @@ export default function Home() {
     spinSpeed: 0.5,
   });
   const [currentShader, setCurrentShader] = useState<string>(DEFAULT_SHADER_ID);
-  const [cursorMode, setCursorMode] = useState<CursorMode>(CursorMode.Rotate);
+  const [cursorMode, setCursorMode] = useState<CursorMode>(CursorMode.Paint);
   const [isGrabbing, setIsGrabbing] = useState<boolean>(false);
   const [hudVisible, setHudVisible] = useState<boolean>(true);
   const isOverModelRef = useRef<boolean>(false);
   const hudTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ref for cursor mode to use in event handlers
-  const cursorModeRef = useRef<CursorMode>(CursorMode.Rotate);
+  const cursorModeRef = useRef<CursorMode>(CursorMode.Paint);
 
   // Sync cursor mode with ref
   useEffect(() => {
     cursorModeRef.current = cursorMode;
-    // Update controls based on mode
+    // Disable OrbitControls entirely - we handle move/rotate manually on the model
     const controls = controlsRef.current;
     if (controls) {
-      if (cursorMode === CursorMode.Move) {
-        controls.enablePan = true;
-        controls.enableRotate = false;
-      } else {
-        controls.enablePan = false;
-        controls.enableRotate = true;
-      }
+      controls.enablePan = false;
+      controls.enableRotate = false;
+      controls.enabled = false;
     }
   }, [cursorMode]);
+
+  // ============================================================================
+  // INITIALIZE FROM LOCALSTORAGE (client-side only to avoid hydration mismatch)
+  // ============================================================================
+
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
+    // Check localStorage for saved paint state
+    if (checkHasAnySavedPaintState()) {
+      const lastModelId = getLastSelectedModelId();
+      if (lastModelId) {
+        const model = findModelById(lastModelId);
+        if (model) {
+          setSelectedModel(model);
+          setShowModelSelector(false);
+          return;
+        }
+      }
+    }
+    // No saved state - show model selector (already set as default)
+  }, []);
 
   // ============================================================================
   // HUD AUTO-HIDE ON INACTIVITY
@@ -652,6 +704,15 @@ export default function Home() {
     // -------------------------------------------------------------------------
     // Load 3D Model
     // -------------------------------------------------------------------------
+    // Don't load model if none is selected (waiting for user to pick)
+    if (!selectedModel) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Update currentModelIdRef
+    currentModelIdRef.current = selectedModel.id;
+
     loadModel(selectedModel.path, scene, paintTexture, {
       onProgress: (percent) => {
         // console.log(`Loading model: ${percent.toFixed(1)}%`);
@@ -813,8 +874,16 @@ export default function Home() {
         // Store model reference for raycasting against all meshes
         (model as any).__paintableMeshes = paintableMeshes;
 
-        // Store model reference for animation
+        // Create pivot group for rotation around center
+        // The model is already centered at origin, so the pivot at origin
+        // will rotate around the model's center
+        const pivot = new THREE.Group();
+        pivot.add(model);
+        scene.add(pivot);
+
+        // Store references
         modelObjRef.current = model;
+        modelPivotRef.current = pivot;
 
         // Animate model fade-in
         animateModelFadeIn(model, paintableMeshes, scale, () => {
@@ -825,8 +894,8 @@ export default function Home() {
         const ctx = paintCtxRef.current;
         const texture = paintTextureRef.current;
         const thicknessMap = thicknessMapRef.current;
-        if (ctx && texture && thicknessMap) {
-          restoreToCanvas(ctx, texture, thicknessMap).then(
+        if (ctx && texture && thicknessMap && selectedModel) {
+          restoreToCanvas(selectedModel.id, ctx, texture, thicknessMap).then(
             (restored: boolean) => {
               if (restored) {
                 console.log(
@@ -1157,16 +1226,64 @@ export default function Home() {
     };
 
     /**
-     * Pointer down handler - LEFT click for painting on model, or move/rotate outside.
-     * OrbitControls is dynamically enabled/disabled based on raycast hit and mode.
+     * Pointer down handler - behavior depends on cursor mode:
+     * - Paint mode: only paint when clicking on model, do nothing otherwise
+     * - Move mode: always move/drag (even when clicking on model)
+     * - Rotate mode: always rotate (even when clicking on model)
      */
     const handlePointerDown = (event: PointerEvent) => {
       // Only handle LEFT mouse button (button === 0)
       if (event.button === 0) {
+        const currentMode = cursorModeRef.current;
         const result = raycast(event);
 
-        if (result) {
-          // We hit the model - disable controls
+        // Move mode - always drag model regardless of hitting model
+        if (currentMode === CursorMode.Move) {
+          console.log(
+            "Move mode - isDragging start, pivot:",
+            !!modelPivotRef.current
+          );
+          controls.enabled = false;
+          isDraggingModelRef.current = true;
+          setIsGrabbing(true);
+          dragStartMouseRef.current.set(event.clientX, event.clientY);
+          // Initialize velocity tracking
+          lastMousePosRef.current = { x: event.clientX, y: event.clientY };
+          lastMoveTimeRef.current = performance.now();
+          moveVelocityRef.current = { x: 0, y: 0 };
+          if (modelPivotRef.current) {
+            dragStartModelPosRef.current.copy(modelPivotRef.current.position);
+          }
+          return;
+        }
+
+        // Rotate mode - rotate the model via pivot group
+        if (currentMode === CursorMode.Rotate) {
+          controls.enabled = false;
+          isRotatingModelRef.current = true;
+          setIsGrabbing(true);
+          rotateStartMouseRef.current.set(event.clientX, event.clientY);
+          // Initialize velocity tracking
+          lastMousePosRef.current = { x: event.clientX, y: event.clientY };
+          lastRotateTimeRef.current = performance.now();
+          rotateVelocityRef.current = 0;
+          if (modelPivotRef.current) {
+            rotateStartQuaternionRef.current.copy(
+              modelPivotRef.current.quaternion
+            );
+          }
+          return;
+        }
+
+        // Paint mode - only paint if we hit the model
+        if (currentMode === CursorMode.Paint) {
+          if (!result) {
+            // Clicked outside model in paint mode - do nothing
+            controls.enabled = false;
+            return;
+          }
+
+          // We hit the model - paint
           controls.enabled = false;
           event.preventDefault();
 
@@ -1271,20 +1388,6 @@ export default function Home() {
             lastPaintUV = result.uv.clone();
             paintAtUV(result.uv);
           }
-        } else {
-          // Clicked outside model
-          if (cursorModeRef.current === CursorMode.Move) {
-            // Move mode - start dragging the model
-            controls.enabled = false;
-            isDraggingModelRef.current = true;
-            dragStartMouseRef.current.set(event.clientX, event.clientY);
-            if (modelObjRef.current) {
-              dragStartModelPosRef.current.copy(modelObjRef.current.position);
-            }
-          } else {
-            // Rotate mode - enable orbit controls
-            controls.enabled = true;
-          }
         }
       }
     };
@@ -1293,27 +1396,111 @@ export default function Home() {
      * Pointer move handler - update brush cursor, paint, or drag model.
      */
     const handlePointerMove = (event: PointerEvent) => {
-      // Handle model dragging in move mode
-      if (isDraggingModelRef.current && modelObjRef.current) {
-        const deltaX = (event.clientX - dragStartMouseRef.current.x) * 0.005;
-        const deltaY = (event.clientY - dragStartMouseRef.current.y) * -0.005;
+      const currentMode = cursorModeRef.current;
+
+      // Handle model dragging in move mode - move the pivot so rotation center moves too
+      if (isDraggingModelRef.current && modelPivotRef.current) {
+        const now = performance.now();
+        const dt = now - lastMoveTimeRef.current;
+
+        const deltaX = (event.clientX - dragStartMouseRef.current.x) * 0.003;
+        const deltaY = (event.clientY - dragStartMouseRef.current.y) * -0.003;
+
+        // Track velocity for momentum (pixels per ms)
+        if (dt > 0 && dt < 100) {
+          const vx = (event.clientX - lastMousePosRef.current.x) / dt;
+          const vy = (event.clientY - lastMousePosRef.current.y) / dt;
+          // Smooth velocity with exponential moving average
+          moveVelocityRef.current.x =
+            moveVelocityRef.current.x * 0.5 + vx * 0.5;
+          moveVelocityRef.current.y =
+            moveVelocityRef.current.y * 0.5 + vy * 0.5;
+        }
+        lastMoveTimeRef.current = now;
+        lastMousePosRef.current = { x: event.clientX, y: event.clientY };
 
         // Move in camera-relative XY plane
         const cameraRight = new THREE.Vector3();
         const cameraUp = new THREE.Vector3();
         camera.matrix.extractBasis(cameraRight, cameraUp, new THREE.Vector3());
 
-        modelObjRef.current.position.copy(dragStartModelPosRef.current);
-        modelObjRef.current.position.addScaledVector(cameraRight, deltaX);
-        modelObjRef.current.position.addScaledVector(cameraUp, deltaY);
+        modelPivotRef.current.position.copy(dragStartModelPosRef.current);
+        modelPivotRef.current.position.addScaledVector(cameraRight, deltaX);
+        modelPivotRef.current.position.addScaledVector(cameraUp, deltaY);
+        return;
+      }
+
+      // Handle model rotation in rotate mode - only horizontal (Y-axis) rotation
+      if (isRotatingModelRef.current && modelPivotRef.current) {
+        const now = performance.now();
+        const dt = now - lastRotateTimeRef.current;
+
+        const deltaX = (event.clientX - rotateStartMouseRef.current.x) * 0.005;
+
+        // Track rotational velocity for momentum (pixels per ms)
+        if (dt > 0 && dt < 100) {
+          const vr = (event.clientX - lastMousePosRef.current.x) / dt;
+          rotateVelocityRef.current =
+            rotateVelocityRef.current * 0.5 + vr * 0.5;
+        }
+        lastRotateTimeRef.current = now;
+        lastMousePosRef.current = { x: event.clientX, y: event.clientY };
+
+        // Only rotate around Y-axis (horizontal spin) - no tilting
+        const rotationY = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          deltaX
+        );
+
+        // Apply rotation to the initial quaternion
+        const newQuaternion = new THREE.Quaternion()
+          .copy(rotationY)
+          .multiply(rotateStartQuaternionRef.current);
+
+        modelPivotRef.current.quaternion.copy(newQuaternion);
         return;
       }
 
       const result = raycast(event);
 
+      // In Move or Rotate mode, just show appropriate cursor
+      if (
+        currentMode === CursorMode.Move ||
+        currentMode === CursorMode.Rotate
+      ) {
+        // Hide paint cursor in move/rotate modes
+        const cursor = brushCursorRef.current;
+        if (cursor) cursor.visible = false;
+
+        // Set cursor based on mode
+        if (canvas) {
+          if (currentMode === CursorMode.Move) {
+            canvas.style.cursor = isDraggingModelRef.current
+              ? "grabbing"
+              : "grab";
+          } else {
+            // Rotate mode - use move cursor (4-way arrow) or grabbing when active
+            canvas.style.cursor = isRotatingModelRef.current
+              ? "grabbing"
+              : "ew-resize";
+          }
+        }
+
+        // Clear highlight/spores in non-paint modes
+        if (highlightManagerRef.current) {
+          highlightManagerRef.current.setHighlight(null, null, null, null);
+        }
+        if (sporeEmitterRef.current) {
+          sporeEmitterRef.current.setEmitting(false);
+        }
+        hoveredIslandRef.current = null;
+        return;
+      }
+
+      // Paint mode logic
       if (result) {
-        // Set cursor to default when over model
-        if (canvas) canvas.style.cursor = "default";
+        // Set cursor to crosshair when over model in paint mode
+        if (canvas) canvas.style.cursor = "crosshair";
         isOverModelRef.current = true;
 
         // Update brush cursor target position (will be smoothly interpolated)
@@ -1396,10 +1583,9 @@ export default function Home() {
           paintAtUV(result.uv);
         }
       } else {
-        // Restore cursor based on mode when not over model
+        // Not over model in paint mode - show crosshair cursor
         if (canvas) {
-          canvas.style.cursor =
-            cursorModeRef.current === CursorMode.Move ? "grab" : "all-scroll";
+          canvas.style.cursor = "crosshair";
         }
         isOverModelRef.current = false;
 
@@ -1428,6 +1614,8 @@ export default function Home() {
     const handlePointerLeave = () => {
       isPaintingRef.current = false;
       isDraggingModelRef.current = false;
+      isRotatingModelRef.current = false;
+      setIsGrabbing(false);
       const cursor = brushCursorRef.current;
       if (cursor) {
         cursor.visible = false;
@@ -1444,12 +1632,86 @@ export default function Home() {
     };
 
     /**
-     * Pointer up handler - stop painting/dragging and re-enable controls.
+     * Pointer up handler - stop painting/dragging and apply momentum.
      */
     const handlePointerUp = () => {
+      const wasDragging = isDraggingModelRef.current;
+      const wasRotating = isRotatingModelRef.current;
+
       isPaintingRef.current = false;
       isDraggingModelRef.current = false;
-      controls.enabled = true;
+      isRotatingModelRef.current = false;
+      setIsGrabbing(false);
+
+      // Apply momentum with GSAP ease-out for move
+      if (wasDragging && modelPivotRef.current) {
+        const vx = moveVelocityRef.current.x;
+        const vy = moveVelocityRef.current.y;
+        const speed = Math.sqrt(vx * vx + vy * vy);
+
+        if (speed > 0.1) {
+          // Calculate momentum distance (scale velocity)
+          const momentumScale = 150; // How far momentum carries
+          const targetDeltaX = vx * momentumScale * 0.001;
+          const targetDeltaY = -vy * momentumScale * 0.001;
+
+          const cameraRight = new THREE.Vector3();
+          const cameraUp = new THREE.Vector3();
+          camera.matrix.extractBasis(
+            cameraRight,
+            cameraUp,
+            new THREE.Vector3()
+          );
+
+          const currentPos = modelPivotRef.current.position.clone();
+          const targetPos = currentPos.clone();
+          targetPos.addScaledVector(cameraRight, targetDeltaX);
+          targetPos.addScaledVector(cameraUp, targetDeltaY);
+
+          gsap.to(modelPivotRef.current.position, {
+            x: targetPos.x,
+            y: targetPos.y,
+            z: targetPos.z,
+            duration: 0.6,
+            ease: "power2.out",
+          });
+        }
+
+        // Reset velocity
+        moveVelocityRef.current = { x: 0, y: 0 };
+      }
+
+      // Apply momentum with GSAP ease-out for rotate
+      if (wasRotating && modelPivotRef.current) {
+        const vr = rotateVelocityRef.current;
+
+        if (Math.abs(vr) > 0.1) {
+          // Calculate momentum rotation
+          const momentumScale = 200;
+          const targetDeltaRotation = vr * momentumScale * 0.005;
+
+          // Get current Y rotation from quaternion
+          const euler = new THREE.Euler().setFromQuaternion(
+            modelPivotRef.current.quaternion,
+            "YXZ"
+          );
+          const targetY = euler.y + targetDeltaRotation;
+
+          gsap.to(euler, {
+            y: targetY,
+            duration: 0.6,
+            ease: "power2.out",
+            onUpdate: () => {
+              if (modelPivotRef.current) {
+                modelPivotRef.current.quaternion.setFromEuler(euler);
+              }
+            },
+          });
+        }
+
+        // Reset velocity
+        rotateVelocityRef.current = 0;
+      }
     };
 
     /**
@@ -1562,6 +1824,29 @@ export default function Home() {
   }, []);
 
   // ============================================================================
+  // MODEL CHANGE HANDLER
+  // ============================================================================
+
+  const handleModelChange = useCallback(
+    (newModel: ModelOption) => {
+      // Don't do anything if selecting the same model
+      if (selectedModel?.id === newModel.id) return;
+
+      // Save current paint state for the current model before switching
+      // This is synchronous - saves to localStorage immediately
+      savePaintState();
+
+      // Update last model ID in storage
+      setLastModelId(newModel.id);
+
+      // Set new model - this will trigger the useEffect to reload
+      // The new model's paint state will be restored after loading
+      setSelectedModel(newModel);
+    },
+    [selectedModel, savePaintState, setLastModelId]
+  );
+
+  // ============================================================================
   // KEYBOARD SHORTCUTS (handled by useKeyboardShortcuts hook)
   // ============================================================================
 
@@ -1574,6 +1859,7 @@ export default function Home() {
     undoHistoryRef,
     redoHistoryRef,
     canvasSize: PAINT_CANVAS_SIZE,
+    cursorMode,
     setCursorMode,
     handleBrushChange,
     onSave: savePaintState,
@@ -1593,17 +1879,14 @@ export default function Home() {
           style={{
             touchAction: "none",
             cursor:
-              cursorMode === CursorMode.Move
-                ? isGrabbing
-                  ? "grabbing"
-                  : "grab"
-                : "all-scroll",
+              cursorMode === CursorMode.Paint
+                ? "crosshair"
+                : cursorMode === CursorMode.Move
+                  ? isGrabbing
+                    ? "grabbing"
+                    : "grab"
+                  : "all-scroll",
           }}
-          onMouseDown={() => {
-            if (cursorMode === CursorMode.Move) setIsGrabbing(true);
-          }}
-          onMouseUp={() => setIsGrabbing(false)}
-          onMouseLeave={() => setIsGrabbing(false)}
         />
 
         {/* Loading Overlay with Wave Animation */}
@@ -1639,6 +1922,8 @@ export default function Home() {
           onColorChange={handleColorSelect}
           onColorCommit={handleColorCommit}
           hudVisible={hudVisible}
+          currentModel={selectedModel}
+          onModelChange={handleModelChange}
         />
       </div>
 

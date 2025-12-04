@@ -54,7 +54,11 @@ export function ColorPicker({
         type="color"
         value={color}
         onChange={(e) => {
+          // Only update brush color during drag, don't save to palette yet
           onColorChange(e.target.value);
+        }}
+        onBlur={(e) => {
+          // Save to palette when picker closes (loses focus)
           onColorCommit(e.target.value);
         }}
         className="sr-only"
@@ -98,6 +102,7 @@ export function ColorPicker({
                   )}
                   style={{ backgroundColor: swatchColor }}
                   onClick={() => {
+                    // Clicking a swatch immediately applies and saves to palette
                     onColorChange(swatchColor);
                     onColorCommit(swatchColor);
                   }}

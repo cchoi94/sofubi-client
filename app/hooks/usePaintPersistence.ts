@@ -21,28 +21,49 @@ export interface PersistentPaintState {
   version: number;
 }
 
+/** Root storage structure containing all model paint states */
+export interface PaintStorageRoot {
+  // Currently/last selected model ID
+  lastModelId: string | null;
+  // Per-model paint states
+  models: Record<string, PersistentPaintState>;
+  // Version for future compatibility
+  version: number;
+}
+
 export interface UsePaintPersistenceOptions {
-  /** Storage key prefix */
+  /** Storage key */
   storageKey?: string;
   /** Auto-save interval in ms (0 to disable) */
   autoSaveInterval?: number;
 }
 
 export interface UsePaintPersistenceReturn {
-  /** Save current paint state to localStorage (non-blocking) */
+  /** Save current paint state for the current model (non-blocking) */
   saveState: () => void;
-  /** Load paint state from localStorage */
-  loadState: () => PersistentPaintState | null;
-  /** Clear saved state from localStorage */
-  clearState: () => void;
-  /** Check if there's saved state */
-  hasSavedState: () => boolean;
-  /** Restore paint state to canvas (async, loads image) */
+  /** Load paint state for a specific model */
+  loadState: (modelId: string) => PersistentPaintState | null;
+  /** Clear saved state for a specific model */
+  clearState: (modelId: string) => void;
+  /** Clear all saved states */
+  clearAllStates: () => void;
+  /** Check if there's saved state for a model */
+  hasSavedState: (modelId: string) => boolean;
+  /** Check if there's any saved state at all */
+  hasAnySavedState: () => boolean;
+  /** Get all model IDs with saved paint states */
+  getSavedModelIds: () => string[];
+  /** Restore paint state to canvas for a specific model (async, loads image) */
   restoreToCanvas: (
+    modelId: string,
     ctx: CanvasRenderingContext2D,
     texture: THREE.CanvasTexture,
     thicknessMap: Float32Array
   ) => Promise<boolean>;
+  /** Get the last selected model ID */
+  getLastModelId: () => string | null;
+  /** Set the last selected model ID */
+  setLastModelId: (modelId: string) => void;
 }
 
 // ============================================================================
@@ -51,10 +72,10 @@ export interface UsePaintPersistenceReturn {
 
 const DEFAULT_STORAGE_KEY = "sofubi_paint_state";
 const DEFAULT_AUTO_SAVE_INTERVAL = 30000; // 30 seconds
-const STATE_VERSION = 2; // Bump when format changes
+const STATE_VERSION = 3; // Bump when format changes (3 = nested per-model)
+const STORAGE_ROOT_VERSION = 1;
 
 // JPEG quality for canvas export (0.0 - 1.0)
-// Lower = smaller file but more artifacts
 const CANVAS_JPEG_QUALITY = 0.6;
 
 // Minimum threshold for thickness values to save (skip near-zero)
@@ -66,20 +87,16 @@ const THICKNESS_THRESHOLD = 0.001;
 
 /**
  * Encode thickness map sparsely - only store non-zero values
- * Format: JSON array of [index, value] pairs
- * Much smaller than full array when most values are 0
  */
 function encodeSparseThickness(arr: Float32Array): string {
   const sparse: [number, number][] = [];
 
   for (let i = 0; i < arr.length; i++) {
     if (arr[i] > THICKNESS_THRESHOLD) {
-      // Round to 2 decimal places to save space
       sparse.push([i, Math.round(arr[i] * 100) / 100]);
     }
   }
 
-  // If more than 25% is non-zero, use run-length encoding instead
   if (sparse.length > arr.length * 0.25) {
     return "rle:" + encodeRLE(arr);
   }
@@ -87,11 +104,8 @@ function encodeSparseThickness(arr: Float32Array): string {
   return "sparse:" + JSON.stringify(sparse);
 }
 
-/**
- * Simple RLE encoding for dense thickness maps
- */
 function encodeRLE(arr: Float32Array): string {
-  const runs: [number, number][] = []; // [value * 100, count]
+  const runs: [number, number][] = [];
   let currentVal = Math.round(arr[0] * 100);
   let count = 1;
 
@@ -110,9 +124,6 @@ function encodeRLE(arr: Float32Array): string {
   return JSON.stringify(runs);
 }
 
-/**
- * Decode RLE back to Float32Array
- */
 function decodeRLE(data: string, length: number): Float32Array {
   const runs: [number, number][] = JSON.parse(data);
   const arr = new Float32Array(length);
@@ -128,9 +139,6 @@ function decodeRLE(data: string, length: number): Float32Array {
   return arr;
 }
 
-/**
- * Decode sparse thickness map back to Float32Array
- */
 function decodeSparseThickness(
   data: string,
   length: number
@@ -151,7 +159,6 @@ function decodeSparseThickness(
       return arr;
     }
 
-    // Legacy format (v1) - full base64
     return base64ToArray(data, length);
   } catch (e) {
     console.error("Failed to decode thickness data:", e);
@@ -159,9 +166,6 @@ function decodeSparseThickness(
   }
 }
 
-/**
- * Convert base64 to Float32Array (for legacy support)
- */
 function base64ToArray(
   base64: string,
   expectedLength: number
@@ -174,7 +178,6 @@ function base64ToArray(
     }
     const result = new Float32Array(uint8.buffer);
     if (result.length !== expectedLength) {
-      console.warn("Array size mismatch");
       return null;
     }
     return result;
@@ -183,9 +186,6 @@ function base64ToArray(
   }
 }
 
-/**
- * Load image from data URL and draw to canvas
- */
 function loadImageToCanvas(
   dataUrl: string,
   ctx: CanvasRenderingContext2D
@@ -206,24 +206,65 @@ function loadImageToCanvas(
 }
 
 // ============================================================================
+// STORAGE HELPERS
+// ============================================================================
+
+function getStorageRoot(storageKey: string): PaintStorageRoot {
+  try {
+    const data = localStorage.getItem(storageKey);
+    if (!data) {
+      return { lastModelId: null, models: {}, version: STORAGE_ROOT_VERSION };
+    }
+
+    const parsed = JSON.parse(data);
+
+    // Handle legacy single-model format (migrate to new format)
+    if (parsed.canvasData !== undefined) {
+      console.log("Migrating legacy paint state to new format...");
+      // This is the old format - migrate it
+      const legacyState = parsed as PersistentPaintState;
+      return {
+        lastModelId: "godzilla", // Assume old data was godzilla
+        models: {
+          godzilla: legacyState,
+        },
+        version: STORAGE_ROOT_VERSION,
+      };
+    }
+
+    return parsed as PaintStorageRoot;
+  } catch (e) {
+    console.error("Failed to parse storage root:", e);
+    return { lastModelId: null, models: {}, version: STORAGE_ROOT_VERSION };
+  }
+}
+
+function setStorageRoot(storageKey: string, root: PaintStorageRoot): void {
+  try {
+    const serialized = JSON.stringify(root);
+    localStorage.setItem(storageKey, serialized);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      console.error("Storage quota exceeded");
+    } else {
+      throw e;
+    }
+  }
+}
+
+// ============================================================================
 // HOOK
 // ============================================================================
 
 /**
- * Hook for persisting paint state to localStorage.
- *
- * OPTIMIZATIONS:
- * - Uses JPEG with reduced quality (much smaller than PNG)
- * - Sparse encoding for thickness map (most values are 0)
- * - Non-blocking saves using requestIdleCallback
- * - Only saves on manual trigger (Cmd+S) or interval (default 30s)
- * - Does NOT save on every stroke to avoid lag
+ * Hook for persisting paint state to localStorage (per model).
  */
 export function usePaintPersistence(
   paintCtxRef: React.RefObject<CanvasRenderingContext2D | null>,
   paintTextureRef: React.RefObject<THREE.CanvasTexture | null>,
   thicknessMapRef: React.RefObject<Float32Array | null>,
   currentShaderIdRef: React.RefObject<string>,
+  currentModelIdRef: React.RefObject<string>,
   options: UsePaintPersistenceOptions = {}
 ): UsePaintPersistenceReturn {
   const {
@@ -235,10 +276,9 @@ export function usePaintPersistence(
   const lastSaveRef = useRef<number>(0);
 
   // -------------------------------------------------------------------------
-  // Save State (Non-blocking via requestIdleCallback)
+  // Save State for Current Model
   // -------------------------------------------------------------------------
   const saveState = useCallback(() => {
-    // Prevent concurrent saves
     if (isSavingRef.current) {
       console.log("Save already in progress, skipping");
       return;
@@ -247,27 +287,23 @@ export function usePaintPersistence(
     const ctx = paintCtxRef.current;
     const thicknessMap = thicknessMapRef.current;
     const shaderId = currentShaderIdRef.current;
+    const modelId = currentModelIdRef.current;
 
-    if (!ctx || !thicknessMap) {
+    if (!ctx || !thicknessMap || !modelId) {
       console.warn("Cannot save paint state: missing refs");
       return;
     }
 
-    // Capture canvas data synchronously (this is fast)
     const canvasDataUrl = ctx.canvas.toDataURL(
       "image/jpeg",
       CANVAS_JPEG_QUALITY
     );
-
-    // Copy thickness map for async processing
     const thicknessSnapshot = new Float32Array(thicknessMap);
 
     isSavingRef.current = true;
 
-    // Do the heavy work (encoding + localStorage) in idle time
     const doSave = () => {
       try {
-        // Encode thickness sparsely (this can be slow for large arrays)
         const thicknessData = encodeSparseThickness(thicknessSnapshot);
 
         const state: PersistentPaintState = {
@@ -279,35 +315,17 @@ export function usePaintPersistence(
           version: STATE_VERSION,
         };
 
-        const serialized = JSON.stringify(state);
-        const sizeKB = (serialized.length / 1024).toFixed(1);
+        const root = getStorageRoot(storageKey);
+        root.models[modelId] = state;
+        root.lastModelId = modelId;
 
-        // Try to save
-        try {
-          localStorage.setItem(storageKey, serialized);
-          lastSaveRef.current = Date.now();
-          console.log(`Paint state saved (${sizeKB}KB)`);
-        } catch (e) {
-          if (e instanceof DOMException && e.name === "QuotaExceededError") {
-            // Storage full - try with even lower quality
-            console.warn("Storage quota exceeded, trying lower quality...");
-            const lowQualityData = ctx.canvas.toDataURL("image/jpeg", 0.3);
-            state.canvasData = lowQualityData;
-            const smallerSerialized = JSON.stringify(state);
+        setStorageRoot(storageKey, root);
+        lastSaveRef.current = Date.now();
 
-            try {
-              localStorage.setItem(storageKey, smallerSerialized);
-              console.log(
-                `Paint state saved with reduced quality (${(smallerSerialized.length / 1024).toFixed(1)}KB)`
-              );
-            } catch {
-              console.error("Cannot save - storage full. Clearing old state.");
-              localStorage.removeItem(storageKey);
-            }
-          } else {
-            throw e;
-          }
-        }
+        const totalSize = JSON.stringify(root).length;
+        console.log(
+          `Paint state saved for ${modelId} (total: ${(totalSize / 1024).toFixed(1)}KB)`
+        );
       } catch (e) {
         console.error("Failed to save paint state:", e);
       } finally {
@@ -315,93 +333,129 @@ export function usePaintPersistence(
       }
     };
 
-    // Use requestIdleCallback for non-blocking save
     if (typeof requestIdleCallback !== "undefined") {
       requestIdleCallback(doSave, { timeout: 5000 });
     } else {
-      // Fallback for Safari
       setTimeout(doSave, 0);
     }
-  }, [paintCtxRef, thicknessMapRef, currentShaderIdRef, storageKey]);
+  }, [
+    paintCtxRef,
+    thicknessMapRef,
+    currentShaderIdRef,
+    currentModelIdRef,
+    storageKey,
+  ]);
 
   // -------------------------------------------------------------------------
-  // Load State
+  // Load State for a Specific Model
   // -------------------------------------------------------------------------
-  const loadState = useCallback((): PersistentPaintState | null => {
-    try {
-      const data = localStorage.getItem(storageKey);
-      if (!data) return null;
+  const loadState = useCallback(
+    (modelId: string): PersistentPaintState | null => {
+      try {
+        const root = getStorageRoot(storageKey);
+        const state = root.models[modelId];
 
-      const state = JSON.parse(data) as PersistentPaintState;
+        if (!state) return null;
 
-      // Handle legacy format (v1)
-      if (!state.version || state.version < 2) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const legacy = state as any;
-        if (legacy.canvasDataUrl) {
-          state.canvasData = legacy.canvasDataUrl;
+        if (!state.canvasData || !state.thicknessData) {
+          console.warn("Invalid saved state for model:", modelId);
+          return null;
         }
-        if (legacy.thicknessMapBase64) {
-          state.thicknessData = legacy.thicknessMapBase64;
-        }
-      }
 
-      // Validate the state
-      if (!state.canvasData || !state.thicknessData) {
-        console.warn("Invalid saved state, missing required fields");
+        return state;
+      } catch (e) {
+        console.error("Failed to load paint state:", e);
         return null;
       }
-
-      // Check if canvas size matches
-      if (state.canvasSize && state.canvasSize !== PAINT_CANVAS_SIZE) {
-        console.warn(
-          "Canvas size mismatch, saved:",
-          state.canvasSize,
-          "current:",
-          PAINT_CANVAS_SIZE
-        );
-      }
-
-      return state;
-    } catch (e) {
-      console.error("Failed to load paint state:", e);
-      return null;
-    }
-  }, [storageKey]);
+    },
+    [storageKey]
+  );
 
   // -------------------------------------------------------------------------
-  // Clear State
+  // Clear State for a Specific Model
   // -------------------------------------------------------------------------
-  const clearState = useCallback(() => {
+  const clearState = useCallback(
+    (modelId: string) => {
+      const root = getStorageRoot(storageKey);
+      delete root.models[modelId];
+      setStorageRoot(storageKey, root);
+      console.log(`Paint state cleared for ${modelId}`);
+    },
+    [storageKey]
+  );
+
+  // -------------------------------------------------------------------------
+  // Clear All States
+  // -------------------------------------------------------------------------
+  const clearAllStates = useCallback(() => {
     localStorage.removeItem(storageKey);
-    console.log("Paint state cleared from localStorage");
+    console.log("All paint states cleared");
   }, [storageKey]);
 
   // -------------------------------------------------------------------------
-  // Check if Saved State Exists
+  // Check if Saved State Exists for a Model
   // -------------------------------------------------------------------------
-  const hasSavedState = useCallback((): boolean => {
-    return localStorage.getItem(storageKey) !== null;
+  const hasSavedState = useCallback(
+    (modelId: string): boolean => {
+      const root = getStorageRoot(storageKey);
+      return modelId in root.models;
+    },
+    [storageKey]
+  );
+
+  // -------------------------------------------------------------------------
+  // Check if Any Saved State Exists
+  // -------------------------------------------------------------------------
+  const hasAnySavedState = useCallback((): boolean => {
+    const root = getStorageRoot(storageKey);
+    return Object.keys(root.models).length > 0;
   }, [storageKey]);
+
+  // -------------------------------------------------------------------------
+  // Get All Saved Model IDs
+  // -------------------------------------------------------------------------
+  const getSavedModelIds = useCallback((): string[] => {
+    const root = getStorageRoot(storageKey);
+    return Object.keys(root.models);
+  }, [storageKey]);
+
+  // -------------------------------------------------------------------------
+  // Get Last Selected Model ID
+  // -------------------------------------------------------------------------
+  const getLastModelId = useCallback((): string | null => {
+    const root = getStorageRoot(storageKey);
+    return root.lastModelId;
+  }, [storageKey]);
+
+  // -------------------------------------------------------------------------
+  // Set Last Selected Model ID
+  // -------------------------------------------------------------------------
+  const setLastModelId = useCallback(
+    (modelId: string) => {
+      const root = getStorageRoot(storageKey);
+      root.lastModelId = modelId;
+      setStorageRoot(storageKey, root);
+    },
+    [storageKey]
+  );
 
   // -------------------------------------------------------------------------
   // Restore State to Canvas
   // -------------------------------------------------------------------------
   const restoreToCanvas = useCallback(
     async (
+      modelId: string,
       ctx: CanvasRenderingContext2D,
       texture: THREE.CanvasTexture,
       thicknessMap: Float32Array
     ): Promise<boolean> => {
-      const state = loadState();
+      const state = loadState(modelId);
       if (!state) return false;
 
       try {
-        // Load canvas image
         const imageLoaded = await loadImageToCanvas(state.canvasData, ctx);
         if (!imageLoaded) return false;
 
-        // Restore thickness map
         const decodedThickness = decodeSparseThickness(
           state.thicknessData,
           PAINT_CANVAS_SIZE * PAINT_CANVAS_SIZE
@@ -410,13 +464,10 @@ export function usePaintPersistence(
           thicknessMap.set(decodedThickness);
         }
 
-        // Update texture
         texture.needsUpdate = true;
 
         console.log(
-          "Paint state restored (saved at:",
-          new Date(state.timestamp).toLocaleString(),
-          ")"
+          `Paint state restored for ${modelId} (saved at: ${new Date(state.timestamp).toLocaleString()})`
         );
         return true;
       } catch (e) {
@@ -428,7 +479,7 @@ export function usePaintPersistence(
   );
 
   // -------------------------------------------------------------------------
-  // Auto-save on interval (default 30s)
+  // Auto-save on interval
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (autoSaveInterval <= 0) return;
@@ -437,6 +488,7 @@ export function usePaintPersistence(
       if (
         paintCtxRef.current &&
         thicknessMapRef.current &&
+        currentModelIdRef.current &&
         !isSavingRef.current
       ) {
         saveState();
@@ -444,18 +496,25 @@ export function usePaintPersistence(
     }, autoSaveInterval);
 
     return () => clearInterval(intervalId);
-  }, [autoSaveInterval, saveState, paintCtxRef, thicknessMapRef]);
+  }, [
+    autoSaveInterval,
+    saveState,
+    paintCtxRef,
+    thicknessMapRef,
+    currentModelIdRef,
+  ]);
 
   // -------------------------------------------------------------------------
-  // Save on page unload (synchronous, cannot use requestIdleCallback)
+  // Save on page unload
   // -------------------------------------------------------------------------
   useEffect(() => {
     const handleBeforeUnload = () => {
       const ctx = paintCtxRef.current;
       const thicknessMap = thicknessMapRef.current;
       const shaderId = currentShaderIdRef.current;
+      const modelId = currentModelIdRef.current;
 
-      if (!ctx || !thicknessMap) return;
+      if (!ctx || !thicknessMap || !modelId) return;
 
       try {
         const canvasDataUrl = ctx.canvas.toDataURL(
@@ -473,7 +532,11 @@ export function usePaintPersistence(
           version: STATE_VERSION,
         };
 
-        localStorage.setItem(storageKey, JSON.stringify(state));
+        const root = getStorageRoot(storageKey);
+        root.models[modelId] = state;
+        root.lastModelId = modelId;
+
+        localStorage.setItem(storageKey, JSON.stringify(root));
       } catch (e) {
         console.error("Failed to save on unload:", e);
       }
@@ -483,14 +546,25 @@ export function usePaintPersistence(
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [paintCtxRef, thicknessMapRef, currentShaderIdRef, storageKey]);
+  }, [
+    paintCtxRef,
+    thicknessMapRef,
+    currentShaderIdRef,
+    currentModelIdRef,
+    storageKey,
+  ]);
 
   return {
     saveState,
     loadState,
     clearState,
+    clearAllStates,
     hasSavedState,
+    hasAnySavedState,
+    getSavedModelIds,
     restoreToCanvas,
+    getLastModelId,
+    setLastModelId,
   };
 }
 
@@ -498,34 +572,48 @@ export function usePaintPersistence(
 // STANDALONE FUNCTIONS
 // ============================================================================
 
-export function checkSavedPaintState(
+export function checkHasAnySavedPaintState(
   storageKey: string = DEFAULT_STORAGE_KEY
 ): boolean {
-  return localStorage.getItem(storageKey) !== null;
-}
-
-export function getSavedStateTimestamp(
-  storageKey: string = DEFAULT_STORAGE_KEY
-): Date | null {
   try {
     const data = localStorage.getItem(storageKey);
-    if (!data) return null;
-    const state = JSON.parse(data) as PersistentPaintState;
-    return new Date(state.timestamp);
+    if (!data) return false;
+    const parsed = JSON.parse(data);
+    // Handle legacy format
+    if (parsed.canvasData !== undefined) return true;
+    // New format
+    return Object.keys(parsed.models || {}).length > 0;
   } catch {
-    return null;
+    return false;
   }
 }
 
-export function getSavedStateShaderId(
+export function getLastSelectedModelId(
   storageKey: string = DEFAULT_STORAGE_KEY
 ): string | null {
   try {
     const data = localStorage.getItem(storageKey);
     if (!data) return null;
-    const state = JSON.parse(data) as PersistentPaintState;
-    return state.shaderId;
+    const parsed = JSON.parse(data);
+    // Handle legacy format
+    if (parsed.canvasData !== undefined) return "godzilla";
+    return parsed.lastModelId || null;
   } catch {
     return null;
+  }
+}
+
+export function getSavedModelIds(
+  storageKey: string = DEFAULT_STORAGE_KEY
+): string[] {
+  try {
+    const data = localStorage.getItem(storageKey);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    // Handle legacy format
+    if (parsed.canvasData !== undefined) return ["godzilla"];
+    return Object.keys(parsed.models || {});
+  } catch {
+    return [];
   }
 }

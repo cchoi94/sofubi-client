@@ -7,7 +7,13 @@ export type {
 
 export {
   usePaintPersistence,
-  checkSavedPaintState,
-  getSavedStateTimestamp,
-  getSavedStateShaderId,
+  checkHasAnySavedPaintState,
+  getLastSelectedModelId,
+  getSavedModelIds,
+} from "./usePaintPersistence";
+export type {
+  PersistentPaintState,
+  PaintStorageRoot,
+  UsePaintPersistenceOptions,
+  UsePaintPersistenceReturn,
 } from "./usePaintPersistence";

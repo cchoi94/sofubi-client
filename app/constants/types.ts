@@ -15,6 +15,7 @@ export enum BrushType {
  * Cursor mode enum for interaction modes
  */
 export enum CursorMode {
+  Paint = "paint",
   Move = "move",
   Rotate = "rotate",
 }
@@ -45,6 +46,7 @@ export interface ModelOption {
   id: string;
   name: string;
   path: string;
+  disabled?: boolean; // If true, shows "Coming Soon" and prevents selection
 }
 
 /**
@@ -76,5 +78,7 @@ export interface BottomToolbarProps {
   colorHistory: string[];
   onColorChange: (color: string) => void;
   onColorCommit: (color: string) => void;
+  currentModel: ModelOption | null;
+  onModelChange: (model: ModelOption) => void;
   hudVisible?: boolean;
 }

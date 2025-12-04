@@ -92,13 +92,14 @@ export function getCursorStyle(
   isOverModel: boolean,
   isGrabbing: boolean
 ): string {
-  if (isOverModel) {
-    return "default";
+  // Paint mode - crosshair cursor for precision painting
+  if (cursorMode === "paint") {
+    return "crosshair";
   }
-  // Import CursorMode dynamically to avoid circular deps
-  // CursorMode.Move = "move", CursorMode.Rotate = "rotate"
+  // Move mode - grab/grabbing cursor
   if (cursorMode === "move") {
     return isGrabbing ? "grabbing" : "grab";
   }
+  // Rotate mode - all-scroll cursor
   return "all-scroll";
 }

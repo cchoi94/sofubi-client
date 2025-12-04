@@ -6,6 +6,7 @@ import type { BottomToolbarProps } from "~/constants/types";
 import { BrushTypePicker, ColorPicker } from "./Brush";
 import { CursorModePicker } from "./CursorModePicker";
 import { MaterialPicker } from "./MaterialPicker";
+import { ModelPicker } from "./ModelPicker";
 
 // ============================================================================
 // BOTTOM TOOLBAR COMPONENT (Figma-style)
@@ -21,6 +22,8 @@ export function BottomToolbar({
   colorHistory,
   onColorChange,
   onColorCommit,
+  currentModel,
+  onModelChange,
   hudVisible = true,
 }: BottomToolbarProps) {
   return (
@@ -60,6 +63,15 @@ export function BottomToolbar({
           <MaterialPicker
             currentShader={currentShader}
             onShaderChange={onShaderChange}
+            hudVisible={hudVisible}
+          />
+
+          <Separator orientation="vertical" className="h-6 mx-1" />
+
+          {/* Model Picker (right side) */}
+          <ModelPicker
+            currentModel={currentModel}
+            onModelChange={onModelChange}
             hudVisible={hudVisible}
           />
         </div>

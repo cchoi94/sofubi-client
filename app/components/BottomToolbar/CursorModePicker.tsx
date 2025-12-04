@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, Hand, Rotate3d } from "lucide-react";
+import { ChevronDown, Hand, Rotate3d, PaintbrushVertical } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import {
@@ -52,7 +52,9 @@ export function CursorModePicker({
               size="sm"
               className={cn("h-9 px-2 gap-1.5 rounded-lg", "hover:bg-zinc-800")}
             >
-              {cursorMode === CursorMode.Move ? (
+              {cursorMode === CursorMode.Paint ? (
+                <PaintbrushVertical className="w-4 h-4" />
+              ) : cursorMode === CursorMode.Move ? (
                 <Hand className="w-4 h-4" />
               ) : (
                 <Rotate3d className="w-4 h-4" />
@@ -62,11 +64,31 @@ export function CursorModePicker({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top">
-          <p>{cursorMode === CursorMode.Move ? "Move" : "Rotate"}</p>
+          <p>
+            {cursorMode === CursorMode.Paint
+              ? "Paint"
+              : cursorMode === CursorMode.Move
+                ? "Move"
+                : "Rotate"}
+          </p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-40 p-2" align="start" side="top">
+      <PopoverContent className="w-48 p-2" align="start" side="top">
         <div className="space-y-0.5">
+          <button
+            className={cn(
+              "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
+              "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+              { "bg-zinc-700 text-white": cursorMode === CursorMode.Paint }
+            )}
+            onClick={() => {
+              onCursorModeChange(CursorMode.Paint);
+              setOpen(false);
+            }}
+          >
+            <PaintbrushVertical className="w-4 h-4" />
+            Paint
+          </button>
           <button
             className={cn(
               "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
@@ -81,7 +103,7 @@ export function CursorModePicker({
             <Hand className="w-4 h-4" />
             Move
             <span className="ml-auto text-xs text-zinc-500">
-              {getHotkeyLabel(HOTKEYS.CURSOR_MOVE)}
+              hold {getHotkeyLabel(HOTKEYS.CURSOR_MOVE_HOLD)}
             </span>
           </button>
           <button
@@ -100,7 +122,7 @@ export function CursorModePicker({
             <Rotate3d className="w-4 h-4" />
             Rotate
             <span className="ml-auto text-xs text-zinc-500">
-              {getHotkeyLabel(HOTKEYS.CURSOR_ROTATE)}
+              hold {getHotkeyLabel(HOTKEYS.CURSOR_ROTATE_HOLD)}
             </span>
           </button>
         </div>

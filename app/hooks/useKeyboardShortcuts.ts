@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { Spherical, Vector3 } from "three";
 import type { PerspectiveCamera, CanvasTexture } from "three";
 import gsap from "gsap";
@@ -31,6 +31,9 @@ export interface KeyboardShortcutsConfig {
   // Canvas size for undo/redo
   canvasSize: number;
 
+  // Current cursor mode for hold-to-override
+  cursorMode: CursorMode;
+
   // State setters
   setCursorMode: (mode: CursorMode) => void;
   handleBrushChange: (brush: Partial<BrushState>) => void;
@@ -50,8 +53,8 @@ export interface KeyboardShortcutsConfig {
 /**
  * Custom hook that handles all keyboard shortcuts for the painting app.
  * Includes:
- * - Cursor mode switching (Q/W)
- * - Brush type switching (1/2)
+ * - Cursor mode hold-to-override (Space for Move, R for Rotate)
+ * - Brush type switching (A/B/F)
  * - Undo/Redo (Cmd+Z / Cmd+Shift+Z)
  * - Camera orbit (Arrow keys)
  */
@@ -64,6 +67,7 @@ export function useKeyboardShortcuts({
   undoHistoryRef,
   redoHistoryRef,
   canvasSize,
+  cursorMode,
   setCursorMode,
   handleBrushChange,
   onSave,
@@ -197,6 +201,20 @@ export function useKeyboardShortcuts({
   );
 
   // -------------------------------------------------------------------------
+  // Hold-to-override state tracking
+  // -------------------------------------------------------------------------
+  // Track the mode before hold-to-override was activated
+  const previousModeRef = useRef<CursorMode | null>(null);
+  // Track which hold key is currently pressed
+  const activeHoldKeyRef = useRef<string | null>(null);
+
+  // Keep cursorMode in ref for event handlers
+  const cursorModeRef = useRef(cursorMode);
+  useEffect(() => {
+    cursorModeRef.current = cursorMode;
+  }, [cursorMode]);
+
+  // -------------------------------------------------------------------------
   // Main Keyboard Event Handler
   // -------------------------------------------------------------------------
   useEffect(() => {
@@ -241,24 +259,86 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      // Handle cursor mode and brush shortcuts
-      const key = event.key.toLowerCase();
+      // Handle hold-to-override for cursor modes (Space for Move, R for Rotate)
+      const key = event.key;
 
-      if (key === HOTKEYS.CURSOR_MOVE.toLowerCase()) {
+      // Spacebar for Move (hold-to-override)
+      if (key === HOTKEYS.CURSOR_MOVE_HOLD && !activeHoldKeyRef.current) {
+        event.preventDefault();
+        previousModeRef.current = cursorModeRef.current;
+        activeHoldKeyRef.current = HOTKEYS.CURSOR_MOVE_HOLD;
         setCursorMode(CursorMode.Move);
-      } else if (key === HOTKEYS.CURSOR_ROTATE.toLowerCase()) {
+        return;
+      }
+
+      // R for Rotate (hold-to-override)
+      if (
+        key.toLowerCase() === HOTKEYS.CURSOR_ROTATE_HOLD.toLowerCase() &&
+        !activeHoldKeyRef.current
+      ) {
+        event.preventDefault();
+        previousModeRef.current = cursorModeRef.current;
+        activeHoldKeyRef.current = HOTKEYS.CURSOR_ROTATE_HOLD;
         setCursorMode(CursorMode.Rotate);
-      } else if (key === HOTKEYS.BRUSH_AIRBRUSH) {
+        return;
+      }
+
+      // Handle brush shortcuts (non-hold, regular toggle)
+      const lowerKey = key.toLowerCase();
+
+      if (lowerKey === HOTKEYS.BRUSH_AIRBRUSH.toLowerCase()) {
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Airbrush] });
-      } else if (key === HOTKEYS.BRUSH_PAINTBRUSH) {
+      } else if (lowerKey === HOTKEYS.BRUSH_PAINTBRUSH.toLowerCase()) {
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
-      } else if (key === HOTKEYS.BRUSH_FILL) {
+      } else if (lowerKey === HOTKEYS.BRUSH_FILL.toLowerCase()) {
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Fill] });
       }
     };
 
+    const handleKeyUp = (event: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      const key = event.key;
+
+      // Release Space (Move hold-to-override)
+      if (
+        key === HOTKEYS.CURSOR_MOVE_HOLD &&
+        activeHoldKeyRef.current === HOTKEYS.CURSOR_MOVE_HOLD
+      ) {
+        if (previousModeRef.current !== null) {
+          setCursorMode(previousModeRef.current);
+        }
+        previousModeRef.current = null;
+        activeHoldKeyRef.current = null;
+        return;
+      }
+
+      // Release R (Rotate hold-to-override)
+      if (
+        key.toLowerCase() === HOTKEYS.CURSOR_ROTATE_HOLD.toLowerCase() &&
+        activeHoldKeyRef.current === HOTKEYS.CURSOR_ROTATE_HOLD
+      ) {
+        if (previousModeRef.current !== null) {
+          setCursorMode(previousModeRef.current);
+        }
+        previousModeRef.current = null;
+        activeHoldKeyRef.current = null;
+        return;
+      }
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [
     handleUndo,
     handleRedo,
