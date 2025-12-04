@@ -51,6 +51,7 @@ import type {
 import { BottomToolbar, useBrush } from "~/components/BottomToolbar";
 import { TopRightToolbar } from "~/components/TopRightToolbar";
 import { ShareModal } from "~/components/ShareModal";
+import { LoadingDotsOverlay } from "~/components/LoadingDotsOverlay/LoadingDotsOverlay";
 
 // Hooks
 import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
@@ -61,7 +62,7 @@ import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sofubi Space" },
+    { title: "Sofubi" },
     {
       name: "description",
       content: "Paint directly on 3D models in your browser",
@@ -1548,16 +1549,8 @@ export default function Home() {
           onMouseLeave={() => setIsGrabbing(false)}
         />
 
-        {/* Loading Overlay */}
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80">
-            <div className="text-center">
-              <div className="w-12 h-12 border-4 border-zinc-600 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-zinc-300">Loading ...</p>
-              {/* <p className="text-zinc-300">Loading {selectedModel.name}...</p> */}
-            </div>
-          </div>
-        )}
+        {/* Loading Overlay with Wave Animation */}
+        <LoadingDotsOverlay isLoading={isLoading} />
       </div>
 
       {/* Top Right Toolbar */}

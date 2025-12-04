@@ -65,7 +65,7 @@ export function CursorModePicker({
           <p>{cursorMode === CursorMode.Move ? "Move" : "Rotate"}</p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-40 p-1" align="start" side="top">
+      <PopoverContent className="w-40 p-2" align="start" side="top">
         <div className="space-y-0.5">
           <button
             className={cn(

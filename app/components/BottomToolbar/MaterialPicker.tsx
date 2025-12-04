@@ -61,7 +61,7 @@ export function MaterialPicker({
           <p>Material</p>
         </TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-40 p-1" align="center" side="top">
+      <PopoverContent className="w-40 p-2" align="center" side="top">
         <div className="space-y-0.5">
           {shaders.map((shader) => (
             <button
