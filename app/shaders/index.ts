@@ -43,8 +43,8 @@ export const shaders: CustomShader[] = [
   ceramicShader,
   metalShader,
   pearlescentArmorShader,
-  glassShader,
-  transparentPlasticShader,
+  // glassShader,
+  // transparentPlasticShader,
 ];
 
 /**

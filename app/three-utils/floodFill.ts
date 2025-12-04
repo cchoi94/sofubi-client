@@ -26,8 +26,8 @@ interface EdgeKey {
 
 /**
  * Build UV islands from mesh geometry.
- * Islands are groups of triangles connected in UV space.
- * UV seams create natural boundaries between islands.
+ * Islands are groups of triangles connected in BOTH UV space AND 3D space.
+ * This prevents overlapping/stacked UVs from incorrectly merging disconnected parts.
  */
 export function buildUVIslands(
   geometry: THREE.BufferGeometry
@@ -43,12 +43,20 @@ export function buildUVIslands(
 
   const triangleCount = index ? index.count / 3 : position.count / 3;
 
-  // Build edge connectivity map in UV space
-  // Key: stringified UV edge (sorted), Value: triangles sharing this edge
+  // Build edge connectivity maps in both UV space and 3D space
   const uvEdgeMap = new Map<string, number[]>();
+  const posEdgeMap = new Map<string, number[]>();
 
   const getVertexUV = (vertexIndex: number): [number, number] => {
     return [uv.getX(vertexIndex), uv.getY(vertexIndex)];
+  };
+
+  const getVertexPos = (vertexIndex: number): [number, number, number] => {
+    return [
+      position.getX(vertexIndex),
+      position.getY(vertexIndex),
+      position.getZ(vertexIndex),
+    ];
   };
 
   const getTriangleVertices = (triIndex: number): number[] => {
@@ -67,51 +75,94 @@ export function buildUVIslands(
     uv1: [number, number],
     uv2: [number, number]
   ): string => {
-    // Round to avoid floating point issues
     const precision = 10000;
     const u1 = Math.round(uv1[0] * precision);
     const v1 = Math.round(uv1[1] * precision);
     const u2 = Math.round(uv2[0] * precision);
     const v2 = Math.round(uv2[1] * precision);
 
-    // Sort to make edge direction-independent
     if (u1 < u2 || (u1 === u2 && v1 < v2)) {
       return `${u1},${v1}-${u2},${v2}`;
     }
     return `${u2},${v2}-${u1},${v1}`;
   };
 
-  // Process each triangle and register its UV edges
+  // Create 3D position edge key (normalized so both directions match)
+  const makePosEdgeKey = (
+    p1: [number, number, number],
+    p2: [number, number, number]
+  ): string => {
+    const precision = 10000;
+    const x1 = Math.round(p1[0] * precision);
+    const y1 = Math.round(p1[1] * precision);
+    const z1 = Math.round(p1[2] * precision);
+    const x2 = Math.round(p2[0] * precision);
+    const y2 = Math.round(p2[1] * precision);
+    const z2 = Math.round(p2[2] * precision);
+
+    // Sort to make edge direction-independent
+    if (
+      x1 < x2 ||
+      (x1 === x2 && y1 < y2) ||
+      (x1 === x2 && y1 === y2 && z1 < z2)
+    ) {
+      return `${x1},${y1},${z1}-${x2},${y2},${z2}`;
+    }
+    return `${x2},${y2},${z2}-${x1},${y1},${z1}`;
+  };
+
+  // Process each triangle and register its edges in both UV and 3D space
   for (let triIndex = 0; triIndex < triangleCount; triIndex++) {
     const vertices = getTriangleVertices(triIndex);
     const uvs = vertices.map(getVertexUV);
+    const positions = vertices.map(getVertexPos);
 
     // Three edges per triangle
-    const edges = [
-      [uvs[0], uvs[1]],
-      [uvs[1], uvs[2]],
-      [uvs[2], uvs[0]],
-    ] as [[number, number], [number, number]][];
+    for (let e = 0; e < 3; e++) {
+      const e2 = (e + 1) % 3;
 
-    for (const [uv1, uv2] of edges) {
-      const key = makeUVEdgeKey(uv1, uv2);
-      const existing = uvEdgeMap.get(key) || [];
-      existing.push(triIndex);
-      uvEdgeMap.set(key, existing);
+      // UV edge
+      const uvKey = makeUVEdgeKey(uvs[e], uvs[e2]);
+      const uvExisting = uvEdgeMap.get(uvKey) || [];
+      uvExisting.push(triIndex);
+      uvEdgeMap.set(uvKey, uvExisting);
+
+      // 3D position edge
+      const posKey = makePosEdgeKey(positions[e], positions[e2]);
+      const posExisting = posEdgeMap.get(posKey) || [];
+      posExisting.push(triIndex);
+      posEdgeMap.set(posKey, posExisting);
     }
   }
 
-  // Build adjacency list (which triangles are connected in UV space)
+  // Build adjacency list - triangles must share edge in BOTH UV and 3D space
   const adjacency: number[][] = Array.from({ length: triangleCount }, () => []);
 
-  for (const triangles of uvEdgeMap.values()) {
-    // If exactly 2 triangles share an edge in UV space, they're connected
+  // Find triangles that share edges in 3D space
+  const pos3DNeighbors = new Map<number, Set<number>>();
+  for (const triangles of posEdgeMap.values()) {
     if (triangles.length === 2) {
-      adjacency[triangles[0]].push(triangles[1]);
-      adjacency[triangles[1]].push(triangles[0]);
+      const t1 = triangles[0];
+      const t2 = triangles[1];
+      if (!pos3DNeighbors.has(t1)) pos3DNeighbors.set(t1, new Set());
+      if (!pos3DNeighbors.has(t2)) pos3DNeighbors.set(t2, new Set());
+      pos3DNeighbors.get(t1)!.add(t2);
+      pos3DNeighbors.get(t2)!.add(t1);
     }
-    // If only 1 triangle uses this edge, it's a boundary (UV seam)
-    // If more than 2, it's a complex case (rare)
+  }
+
+  // Only connect triangles that share edges in BOTH UV and 3D space
+  for (const triangles of uvEdgeMap.values()) {
+    if (triangles.length === 2) {
+      const t1 = triangles[0];
+      const t2 = triangles[1];
+      // Check if they're also neighbors in 3D space
+      const t1Neighbors = pos3DNeighbors.get(t1);
+      if (t1Neighbors && t1Neighbors.has(t2)) {
+        adjacency[t1].push(t2);
+        adjacency[t2].push(t1);
+      }
+    }
   }
 
   // Flood fill to find connected components (islands)

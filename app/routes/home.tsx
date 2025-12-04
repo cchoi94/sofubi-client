@@ -1002,7 +1002,7 @@ export default function Home() {
      *
      * UNDERPAINTING EFFECT:
      * Simulates real paint behavior where underlying layers show through.
-     * 
+     *
      * AIRBRUSH MODE:
      * Uses conic spray pattern with random particle distribution.
      */
@@ -1074,7 +1074,7 @@ export default function Home() {
       // Airbrush conic spray settings
       const isAirbrush = brush.type === BrushType.Airbrush;
       // Spray density: how many particles per call (percentage of pixels)
-      const sprayDensity = 0.15; // 15% of pixels get painted each frame
+      const sprayDensity = 0.3; // 20% of pixels get painted each frame
 
       // Blend new color with existing pixels within the brush circle
       for (let dy = 0; dy < height; dy++) {
@@ -1093,11 +1093,22 @@ export default function Home() {
           if (distSq <= radiusSq) {
             const distRatio = Math.sqrt(distSq) / radius;
 
-            // For airbrush: conic spray pattern - random particles with density falling off from center
+            // For airbrush: conic spray pattern - dense circular center with sparse outer spray
             if (isAirbrush) {
-              // Conic distribution: probability decreases with distance from center
-              // This creates a cone-like spray pattern
-              const conicProbability = Math.pow(1 - distRatio, 1.5) * sprayDensity;
+              // Create a dense core in the center (within 30% of radius)
+              const coreRadius = 0.3;
+              let conicProbability: number;
+
+              if (distRatio < coreRadius) {
+                // Dense circular core - high probability
+                conicProbability = sprayDensity * 0.9;
+              } else {
+                // Outer spray - probability drops off sharply from core edge
+                const outerRatio = (distRatio - coreRadius) / (1 - coreRadius);
+                conicProbability =
+                  Math.pow(1 - outerRatio, 3) * sprayDensity * 0.4;
+              }
+
               if (seededRandom() > conicProbability) {
                 continue; // Skip this pixel - not sprayed
               }
@@ -1125,7 +1136,9 @@ export default function Home() {
             }
 
             // Airbrush particles are more opaque individually but sparse
-            const particleOpacity = isAirbrush ? brushOpacity * 2.5 : brushOpacity;
+            const particleOpacity = isAirbrush
+              ? brushOpacity * 2.5
+              : brushOpacity;
             const strokeStrength = Math.min(particleOpacity * edgeFalloff, 1);
 
             const idx = rowOffset + dx * 4;
@@ -1766,21 +1779,21 @@ export default function Home() {
      */
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      
+
       const zoomSpeed = 0.001;
       const delta = event.deltaY * zoomSpeed;
-      
+
       // Move camera along its forward direction
       const direction = new THREE.Vector3();
       camera.getWorldDirection(direction);
-      
+
       // Calculate new position
       const newPos = camera.position.clone();
       newPos.addScaledVector(direction, -delta);
-      
-      // Clamp zoom distance (don't get too close or too far)
+
+      // Clamp zoom distance (allow getting very close, but not too far)
       const distanceToOrigin = newPos.length();
-      if (distanceToOrigin > 1 && distanceToOrigin < 15) {
+      if (distanceToOrigin > 0.3 && distanceToOrigin < 15) {
         gsap.to(camera.position, {
           x: newPos.x,
           y: newPos.y,

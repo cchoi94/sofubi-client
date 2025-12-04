@@ -16,8 +16,13 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   {
     id: "astro_boy",
     name: "Astro Boy",
-    path: "/assets/astro_boy.glb",
+    path: "/assets/astro_boy2.glb",
     disabled: true,
+  },
+  {
+    id: "mewtwo",
+    name: "Mewtwo",
+    path: "/assets/mewtwo.glb",
   },
 ];
 

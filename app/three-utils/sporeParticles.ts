@@ -165,6 +165,7 @@ export interface SporeEmitter {
   emissionAccumulator: number;
   sourcePositions: Float32Array | null;
   sourceNormals: Float32Array | null;
+  sourceMesh: THREE.Mesh | null;
   worldMatrix: THREE.Matrix4;
   setSource: (
     island: UVIsland | null,
@@ -187,6 +188,7 @@ export function createSporeEmitter(
 
   let sourcePositions: Float32Array | null = null;
   let sourceNormals: Float32Array | null = null;
+  let sourceMesh: THREE.Mesh | null = null;
   let worldMatrix = new THREE.Matrix4();
   let emissionAccumulator = 0;
 
@@ -202,11 +204,13 @@ export function createSporeEmitter(
     if (!island || !geometry || !mesh) {
       sourcePositions = null;
       sourceNormals = null;
+      sourceMesh = null;
       return;
     }
 
     sourcePositions = getIslandTrianglePositions(island, geometry);
     sourceNormals = getIslandTriangleNormals(island, geometry);
+    sourceMesh = mesh;
 
     // Get world matrix from mesh hierarchy
     mesh.updateWorldMatrix(true, false);
@@ -279,6 +283,13 @@ export function createSporeEmitter(
   };
 
   const update = (deltaTime: number) => {
+    // Sync world matrix with source mesh (important when model is rotated/moved)
+    if (sourceMesh) {
+      sourceMesh.updateWorldMatrix(true, false);
+      worldMatrix.copy(sourceMesh.matrixWorld);
+      normalMatrix.getNormalMatrix(worldMatrix);
+    }
+
     const positions = system.points.geometry.getAttribute(
       "position"
     ) as THREE.BufferAttribute;
@@ -370,6 +381,9 @@ export function createSporeEmitter(
     emissionAccumulator,
     sourcePositions,
     sourceNormals,
+    get sourceMesh() {
+      return sourceMesh;
+    },
     worldMatrix,
     setSource,
     setColor,
