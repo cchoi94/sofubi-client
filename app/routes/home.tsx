@@ -61,12 +61,46 @@ import { useKeyboardShortcuts, usePaintPersistence } from "~/hooks";
 // ============================================================================
 
 export function meta({}: Route.MetaArgs) {
+  const siteUrl = "https://sofubi.art"; // Update with your actual domain
+  const videoUrl = `${siteUrl}/assets/videos/embed-video.mp4`;
+  const thumbnailUrl = `${siteUrl}/assets/videos/embed-thumbnail.jpg`; // You should create this
+
   return [
     { title: "Sofubi" },
     {
       name: "description",
       content: "Paint directly on 3D models in your browser",
     },
+    // Open Graph basic
+    { property: "og:title", content: "Sofubi" },
+    {
+      property: "og:description",
+      content: "Paint directly on 3D models in your browser",
+    },
+    { property: "og:type", content: "video.other" },
+    { property: "og:url", content: siteUrl },
+    { property: "og:site_name", content: "Sofubi" },
+    // Open Graph video
+    { property: "og:video", content: videoUrl },
+    { property: "og:video:secure_url", content: videoUrl },
+    { property: "og:video:type", content: "video/mp4" },
+    { property: "og:video:width", content: "1200" },
+    { property: "og:video:height", content: "630" },
+    // Fallback image (important - many platforms show this if video doesn't autoplay)
+    { property: "og:image", content: thumbnailUrl },
+    { property: "og:image:width", content: "1200" },
+    { property: "og:image:height", content: "630" },
+    // Twitter Card (video)
+    { name: "twitter:card", content: "player" },
+    { name: "twitter:title", content: "Sofubi" },
+    {
+      name: "twitter:description",
+      content: "Paint directly on 3D models in your browser",
+    },
+    { name: "twitter:player", content: videoUrl },
+    { name: "twitter:player:width", content: "1200" },
+    { name: "twitter:player:height", content: "630" },
+    { name: "twitter:image", content: thumbnailUrl },
   ];
 }
 
