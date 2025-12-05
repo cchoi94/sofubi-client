@@ -49,6 +49,7 @@ import {
   getShaderById,
   DEFAULT_SHADER_ID,
   type ShaderConfig,
+  ShaderId,
 } from "~/shaders";
 
 // Constants & Types
@@ -587,9 +588,6 @@ export default function Home() {
       envMapIntensity: 0.5,
     };
 
-    // Store material ref for updates
-    let currentMaterial: THREE.MeshStandardMaterial | null = null;
-
     // -------------------------------------------------------------------------
     // Create Brush Cursor (filled circle that shows brush color preview)
     // -------------------------------------------------------------------------
@@ -1092,7 +1090,9 @@ export default function Home() {
       // Airbrush conic spray settings
       const isAirbrush = brush.type === BrushType.Airbrush;
       // Spray density: how many particles per call (percentage of pixels)
-      const sprayDensity = 0.3; // 30% of pixels get painted each frame
+      // if currently its metal than 0.4 else 0.3
+      const sprayDensity =
+        currentShaderIdRef.current === ShaderId.METAL ? 0.5 : 0.3;
 
       // Blend new color with existing pixels within the brush circle
       // OPTIMIZATION: Loop unrolling or typed arrays could help further, but avoiding Math.sqrt/exp is the big win here.
@@ -1463,7 +1463,13 @@ export default function Home() {
             // Regular brush painting
             isPaintingRef.current = true;
             lastPaintUV = result.uv.clone();
-            paintAtUV(result.uv);
+
+            // OPTIMIZATION: For Airbrush, do NOT paint here.
+            // The animate loop handles continuous spraying.
+            // Painting here would cause a double-paint on the first frame.
+            if (brushRef.current.type !== BrushType.Airbrush) {
+              paintAtUV(result.uv);
+            }
           }
         }
       }
@@ -1689,34 +1695,37 @@ export default function Home() {
           hoveredIslandRef.current = null;
         }
 
-        // Paint if in painting mode (not for fill brush)
+        // Handle painting while dragging
         if (isPaintingRef.current && brushRef.current.type !== BrushType.Fill) {
           lastPaintUV = result.uv.clone();
-          paintAtUV(result.uv);
+
+          // OPTIMIZATION: For Airbrush, do NOT paint here.
+          // The animate loop handles continuous spraying.
+          // Painting here would cause double-painting (once here, once in animate)
+          // which kills performance during drag.
+          if (brushRef.current.type !== BrushType.Airbrush) {
+            paintAtUV(result.uv);
+          }
         }
       } else {
-        // Not over model in paint mode - show crosshair cursor
-        if (canvas) {
-          canvas.style.cursor = "crosshair";
-        }
+        // Cursor left model
+        if (canvas) canvas.style.cursor = "default";
         isOverModelRef.current = false;
-
-        // Hide cursor when not over model
         const cursor = brushCursorRef.current;
         if (cursor) {
           cursor.visible = false;
           cursorInitialized = false; // Reset so next hit snaps immediately
         }
         lastPaintUV = null; // Clear paint UV when off model
+        hoveredIslandRef.current = null;
 
-        // Clear fill brush highlight and spores when off model
+        // Clear fill brush effects
         if (highlightManagerRef.current) {
           highlightManagerRef.current.setHighlight(null, null, null, null);
         }
         if (sporeEmitterRef.current) {
           sporeEmitterRef.current.setEmitting(false);
         }
-        hoveredIslandRef.current = null;
       }
     };
 
