@@ -969,7 +969,6 @@ export default function Home() {
       const deltaTime = clock.getDelta();
       animationTime += deltaTime;
 
-      controls.update();
       updateCursorSmooth(); // Smooth cursor interpolation
 
       // Spin model if enabled (uses React ref for state)
