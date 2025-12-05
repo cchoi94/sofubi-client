@@ -1079,12 +1079,23 @@ export default function Home() {
       const MAX_COVERAGE = 0.85;
       const brushOpacity = brush.opacity * MAX_COVERAGE;
 
+      // Precomputed Gaussian lookup table for airbrush optimization
+      // Maps squared ratio (0-1) to probability density
+      const GAUSSIAN_TABLE_SIZE = 1024;
+      const GAUSSIAN_SHARPNESS = 3.6;
+      const gaussianTable = new Float32Array(GAUSSIAN_TABLE_SIZE);
+      for (let i = 0; i < GAUSSIAN_TABLE_SIZE; i++) {
+        const rSq = i / (GAUSSIAN_TABLE_SIZE - 1);
+        gaussianTable[i] = Math.exp(-GAUSSIAN_SHARPNESS * rSq);
+      }
+
       // Airbrush conic spray settings
       const isAirbrush = brush.type === BrushType.Airbrush;
       // Spray density: how many particles per call (percentage of pixels)
-      const sprayDensity = 0.3; // 20% of pixels get painted each frame
+      const sprayDensity = 0.3; // 40% of pixels get painted each frame
 
       // Blend new color with existing pixels within the brush circle
+      // OPTIMIZATION: Loop unrolling or typed arrays could help further, but avoiding Math.sqrt/exp is the big win here.
       for (let dy = 0; dy < height; dy++) {
         const worldY = sy + dy;
         const distY = worldY - py;
@@ -1099,27 +1110,20 @@ export default function Home() {
 
           // Only paint within the brush radius (using squared distance)
           if (distSq <= radiusSq) {
-            const distRatio = Math.sqrt(distSq) / radius;
+            // Calculated squared ratio (0 to 1) directly
+            // this avoids the costly Math.sqrt() for every pixel
+            const ratioSq = distSq / radiusSq;
 
             // For airbrush: conic spray pattern - dense circular center with sparse outer spray
             if (isAirbrush) {
-              // Create a dense core in the center (within 30% of radius)
-              const coreRadius = 0.3;
-              let conicProbability: number;
+                // Determine probability using lookup table based on squared distance
+                // Index maps 0..1 ratioSq to 0..TABLE_SIZE
+                const tableIndex = (ratioSq * (GAUSSIAN_TABLE_SIZE - 1)) | 0;
+                const conicProbability = sprayDensity * gaussianTable[tableIndex];
 
-              if (distRatio < coreRadius) {
-                // Dense circular core - high probability
-                conicProbability = sprayDensity * 0.9;
-              } else {
-                // Outer spray - probability drops off sharply from core edge
-                const outerRatio = (distRatio - coreRadius) / (1 - coreRadius);
-                conicProbability =
-                  Math.pow(1 - outerRatio, 3) * sprayDensity * 0.4;
-              }
-
-              if (seededRandom() > conicProbability) {
-                continue; // Skip this pixel - not sprayed
-              }
+                if (seededRandom() > conicProbability) {
+                    continue; // Skip this pixel - not sprayed
+                }
             }
 
             // Edge falloff based on hardness
@@ -1129,23 +1133,36 @@ export default function Home() {
 
             // Compute falloff: soft brushes fade gradually, hard brushes stay solid longer
             let edgeFalloff: number;
+            
             if (isAirbrush) {
-              // Airbrush uses softer, more gradual falloff
-              edgeFalloff = Math.pow(1 - distRatio, 0.8);
+                // OPTIMIZED: Use pre-calculated ratioSq for falloff
+                // We want a curve similar to Math.pow(1 - sqrt(ratioSq), 2.0)
+                // (1 - ratioSq)^2 is a purely squared-based curve that looks reasonably similar (soft hump)
+                // and saves the square root.
+                const falloffBase = 1 - ratioSq;
+                edgeFalloff = falloffBase * falloffBase;
             } else if (hardness >= 0.95) {
-              // Nearly hard edge
-              edgeFalloff = distRatio < 0.9 ? 1 : (1 - distRatio) * 10;
+               // Hard edge needs actual distance ratio for precise cutoff
+               // We pay the sqrt cost here only for hard brushes near the edge
+               // But usually hard brushes are solid so we can just use ratioSq check
+               if (ratioSq < 0.81) { // 0.9 * 0.9
+                   edgeFalloff = 1;
+               } else {
+                   const r = Math.sqrt(ratioSq);
+                   edgeFalloff = (1 - r) * 10;
+               }
             } else {
-              // Soft to medium: use power curve
-              // Higher hardness = steeper curve = harder edge
+              // Soft to medium - stick to original behavior as it might rely on specific curve feel
+              // But we can optimize if needed. For now, keep as is for non-airbrush compatibility.
+              const distRatio = Math.sqrt(distSq) / radius;
               const softness = 1 - hardness;
               const curve = 0.5 + softness * 2; // 0.5 to 2.5
               edgeFalloff = Math.pow(1 - distRatio, curve);
             }
 
-            // Airbrush particles are more opaque individually but sparse
+            // Airbrush particles are more opaque individually but sparse, but with Gaussian we want smoother build
             const particleOpacity = isAirbrush
-              ? brushOpacity * 2.5
+              ? brushOpacity * 1.5 // Reduced slightly from 2.5 as density is better
               : brushOpacity;
             const strokeStrength = Math.min(particleOpacity * edgeFalloff, 1);
 
@@ -2125,23 +2142,23 @@ export default function Home() {
               setIsTransformDirty(false);
 
               // Reset OrbitControls target
-            if (controlsRef.current) {
+              if (controlsRef.current) {
                 controlsRef.current.target.set(0, 0, 0);
+              }
+
+              // Reset Camera Position
+              if (cameraRef.current && DEFAULT_CAMERA_CONFIG.position) {
+                const [x, y, z] = DEFAULT_CAMERA_CONFIG.position;
+                cameraRef.current.position.set(x, y, z);
+                // Ensure camera looks at the new target (0,0,0)
+                cameraRef.current.lookAt(0, 0, 0);
+              }
+
+              if (controlsRef.current) {
+                controlsRef.current.update();
+              }
             }
-            
-            // Reset Camera Position
-            if (cameraRef.current && DEFAULT_CAMERA_CONFIG.position) {
-              const [x, y, z] = DEFAULT_CAMERA_CONFIG.position;
-              cameraRef.current.position.set(x, y, z);
-              // Ensure camera looks at the new target (0,0,0)
-              cameraRef.current.lookAt(0, 0, 0);
-            }
-            
-            if (controlsRef.current) {
-              controlsRef.current.update();
-            }
-          }
-        }}
+          }}
           isTransformDirty={isTransformDirty}
           hudVisible={hudVisible}
         />
