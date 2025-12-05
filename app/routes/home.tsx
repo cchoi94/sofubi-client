@@ -117,6 +117,12 @@ export default function Home() {
   const brushCursorRef = useRef<THREE.Mesh | null>(null);
   const brushCursorOutlineRef = useRef<THREE.Mesh | null>(null);
 
+  // Brush Stamp Optimization
+  const brushStampRef = useRef<Float32Array | null>(null);
+  const lastStampRadiusRef = useRef<number>(0);
+  const lastStampHardnessRef = useRef<number>(0);
+  const lastStampTypeRef = useRef<BrushType | null>(null);
+
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
   const isDraggingModelRef = useRef<boolean>(false); // For move mode dragging
@@ -682,7 +688,9 @@ export default function Home() {
     paintCanvas.height = PAINT_CANVAS_SIZE;
     paintCanvasRef.current = paintCanvas;
 
-    const paintCtx = paintCanvas.getContext("2d");
+    const paintCtx = paintCanvas.getContext("2d", {
+      willReadFrequently: true, // Optimize for frequent readbacks
+    });
     if (paintCtx) {
       // Fill with base color (fully opaque for visibility)
       paintCtx.fillStyle = BASE_COLOR;
@@ -1017,8 +1025,87 @@ export default function Home() {
     let cachedColorHex = "";
     let cachedColorRgb = { r: 0, g: 0, b: 0 };
 
-    // Seeded random for consistent spray patterns
-    const seededRandom = () => Math.random();
+    // Update the pre-computed brush stamp if brush properties changed
+    const updateBrushStamp = (
+      radius: number,
+      hardness: number,
+      type: BrushType
+    ) => {
+      // Check if we need to update
+      if (
+        brushStampRef.current &&
+        lastStampRadiusRef.current === radius &&
+        lastStampHardnessRef.current === hardness &&
+        lastStampTypeRef.current === type
+      ) {
+        return;
+      }
+
+      const size = Math.ceil(radius * 2);
+      const stampSize = size * size;
+      const stamp = new Float32Array(stampSize);
+      const radiusSq = radius * radius;
+
+      // Airbrush constants
+      const isAirbrush = type === BrushType.Airbrush;
+      const GAUSSIAN_SHARPNESS = 3.6; // Controls how tight the core is
+
+      for (let y = 0; y < size; y++) {
+        const dy = y - radius; // Distance from center
+        const dySq = dy * dy;
+
+        for (let x = 0; x < size; x++) {
+          const dx = x - radius;
+          const distSq = dx * dx + dySq;
+
+          if (distSq > radiusSq) {
+            stamp[y * size + x] = 0;
+            continue;
+          }
+
+          const ratioSq = distSq / radiusSq;
+          let alpha = 0;
+
+          if (isAirbrush) {
+            // Iwata Airbrush: Gaussian distribution
+            // P = exp(-k * r^2)
+            // We bake the probability directly into the alpha
+            // This replaces the stochastic "random()" check with a smooth alpha blend
+            alpha = Math.exp(-GAUSSIAN_SHARPNESS * ratioSq);
+
+            // Apply a soft quadratic falloff to the alpha itself to ensure it hits 0 at edge
+            const falloff = 1 - ratioSq;
+            alpha *= falloff * falloff;
+          } else {
+            // Standard Brush Falloff
+            let edgeFalloff = 0;
+            if (hardness >= 0.95) {
+              // Hard edge
+              if (ratioSq < 0.81) {
+                edgeFalloff = 1;
+              } else {
+                const r = Math.sqrt(ratioSq);
+                edgeFalloff = (1 - r) * 10;
+              }
+            } else {
+              // Soft/Medium
+              const distRatio = Math.sqrt(distSq) / radius;
+              const softness = 1 - hardness;
+              const curve = 0.5 + softness * 2;
+              edgeFalloff = Math.pow(1 - distRatio, curve);
+            }
+            alpha = edgeFalloff;
+          }
+
+          stamp[y * size + x] = alpha;
+        }
+      }
+
+      brushStampRef.current = stamp;
+      lastStampRadiusRef.current = radius;
+      lastStampHardnessRef.current = hardness;
+      lastStampTypeRef.current = type;
+    };
 
     const paintAtUV = (uv: THREE.Vector2) => {
       const ctx = paintCtxRef.current;
@@ -1038,7 +1125,11 @@ export default function Home() {
 
       const brush = brushRef.current;
       const radius = brush.radius;
-      const radiusSq = radius * radius; // Use squared for faster comparison
+
+      // Update stamp if needed
+      updateBrushStamp(radius, brush.hardness, brush.type);
+      const stamp = brushStampRef.current;
+      if (!stamp) return;
 
       // Parse brush color (cached)
       if (brush.color !== cachedColorHex) {
@@ -1069,148 +1160,90 @@ export default function Home() {
       if (width <= 0 || height <= 0) return;
 
       // Read existing pixels from the canvas
+      // Note: 'willReadFrequently: true' makes this faster
       const imageData = ctx.getImageData(sx, sy, width, height);
       const pixels = imageData.data;
 
       // Underpainting parameters
       const UNDERCOAT_STRENGTH = 0.4;
-      const MAX_COVERAGE = 0.85;
-      const brushOpacity = brush.opacity * MAX_COVERAGE;
-
-      // Precomputed Gaussian lookup table for airbrush optimization
-      // Maps squared ratio (0-1) to probability density
-      const GAUSSIAN_TABLE_SIZE = 1024;
-      const GAUSSIAN_SHARPNESS = 3.6;
-      const gaussianTable = new Float32Array(GAUSSIAN_TABLE_SIZE);
-      for (let i = 0; i < GAUSSIAN_TABLE_SIZE; i++) {
-        const rSq = i / (GAUSSIAN_TABLE_SIZE - 1);
-        gaussianTable[i] = Math.exp(-GAUSSIAN_SHARPNESS * rSq);
-      }
-
-      // Airbrush conic spray settings
+      const MAX_COVERAGE = 0.95;
+      // For airbrush, we lower the base opacity because the stamp accumulates fast
       const isAirbrush = brush.type === BrushType.Airbrush;
-      // Spray density: how many particles per call (percentage of pixels)
-      // if currently its metal than 0.4 else 0.3
-      const sprayDensity =
-        currentShaderIdRef.current === ShaderId.METAL ? 0.5 : 0.3;
+      const typeOpacityMult = isAirbrush ? 0.6 : 1.0;
+      const brushOpacity = brush.opacity * MAX_COVERAGE * typeOpacityMult;
 
-      // Blend new color with existing pixels within the brush circle
-      // OPTIMIZATION: Loop unrolling or typed arrays could help further, but avoiding Math.sqrt/exp is the big win here.
+      // Stamp dimensions
+      const stampSize = size; // The stamp is always size*size
+
+      // Blend loop - Optimized with Stamp
       for (let dy = 0; dy < height; dy++) {
         const worldY = sy + dy;
-        const distY = worldY - py;
-        const distYSq = distY * distY;
         const rowOffset = dy * width * 4;
         const thicknessRowOffset = worldY * PAINT_CANVAS_SIZE;
 
+        // Calculate corresponding Y in the stamp
+        // worldY = y + stampY => stampY = worldY - y
+        // But 'y' is the top-left of the brush box (unclamped)
+        // sy is the top-left of the clamped box
+        // So stampY = (sy + dy) - y
+        const stampY = sy + dy - y;
+
         for (let dx = 0; dx < width; dx++) {
           const worldX = sx + dx;
-          const distX = worldX - px;
-          const distSq = distX * distX + distYSq;
+          const stampX = sx + dx - x;
 
-          // Only paint within the brush radius (using squared distance)
-          if (distSq <= radiusSq) {
-            // Calculated squared ratio (0 to 1) directly
-            // this avoids the costly Math.sqrt() for every pixel
-            const ratioSq = distSq / radiusSq;
+          // Read alpha from stamp
+          const stampIdx = stampY * stampSize + stampX;
+          const alpha = stamp[stampIdx];
 
-            // For airbrush: conic spray pattern - dense circular center with sparse outer spray
-            if (isAirbrush) {
-              // Determine probability using lookup table based on squared distance
-              // Index maps 0..1 ratioSq to 0..TABLE_SIZE
-              const tableIndex = (ratioSq * (GAUSSIAN_TABLE_SIZE - 1)) | 0;
-              const conicProbability = sprayDensity * gaussianTable[tableIndex];
+          if (alpha <= 0.001) continue;
 
-              if (seededRandom() > conicProbability) {
-                continue; // Skip this pixel - not sprayed
-              }
-            }
+          const idx = rowOffset + dx * 4;
+          const thicknessIdx = thicknessRowOffset + worldX;
 
-            // Edge falloff based on hardness
-            // hardness 0 = very soft gaussian-like falloff
-            // hardness 1 = hard edge with minimal falloff
-            const hardness = brush.hardness;
+          // Calculate final stroke strength
+          const strokeStrength = Math.min(alpha * brushOpacity, 1);
 
-            // Compute falloff: soft brushes fade gradually, hard brushes stay solid longer
-            let edgeFalloff: number;
+          // Get existing color (the undercoat)
+          const underR = pixels[idx];
+          const underG = pixels[idx + 1];
+          const underB = pixels[idx + 2];
 
-            if (isAirbrush) {
-              // OPTIMIZED: Use pre-calculated ratioSq for falloff
-              // We want a curve similar to Math.pow(1 - sqrt(ratioSq), 2.0)
-              // (1 - ratioSq)^2 is a purely squared-based curve that looks reasonably similar (soft hump)
-              // and saves the square root.
-              const falloffBase = 1 - ratioSq;
-              edgeFalloff = falloffBase * falloffBase;
-            } else if (hardness >= 0.95) {
-              // Hard edge needs actual distance ratio for precise cutoff
-              // We pay the sqrt cost here only for hard brushes near the edge
-              // But usually hard brushes are solid so we can just use ratioSq check
-              if (ratioSq < 0.81) {
-                // 0.9 * 0.9
-                edgeFalloff = 1;
-              } else {
-                const r = Math.sqrt(ratioSq);
-                edgeFalloff = (1 - r) * 10;
-              }
-            } else {
-              // Soft to medium - stick to original behavior as it might rely on specific curve feel
-              // But we can optimize if needed. For now, keep as is for non-airbrush compatibility.
-              const distRatio = Math.sqrt(distSq) / radius;
-              const softness = 1 - hardness;
-              const curve = 0.5 + softness * 2; // 0.5 to 2.5
-              edgeFalloff = Math.pow(1 - distRatio, curve);
-            }
+          // Get paint thickness from separate map (0-1 range)
+          const existingThickness = thicknessMap[thicknessIdx];
+          const undercoatBleed =
+            UNDERCOAT_STRENGTH *
+            (existingThickness > 1 ? 1 : existingThickness);
 
-            // Airbrush particles are more opaque individually but sparse, but with Gaussian we want smoother build
-            const particleOpacity = isAirbrush
-              ? brushOpacity * 1.5 // Reduced slightly from 2.5 as density is better
-              : brushOpacity;
-            const strokeStrength = Math.min(particleOpacity * edgeFalloff, 1);
+          // Subtractive-ish color mixing (like real paint)
+          const bleedComp = 1 - undercoatBleed;
+          const bleed07 = undercoatBleed * 0.7;
+          const bleed03 = undercoatBleed * 0.3;
 
-            const idx = rowOffset + dx * 4;
-            const thicknessIdx = thicknessRowOffset + worldX;
+          const mixedR =
+            (brushR * bleedComp +
+              underR * bleed07 +
+              (brushR < underR ? brushR : underR) * bleed03) |
+            0;
+          const mixedG =
+            (brushG * bleedComp +
+              underG * bleed07 +
+              (brushG < underG ? brushG : underG) * bleed03) |
+            0;
+          const mixedB =
+            (brushB * bleedComp +
+              underB * bleed07 +
+              (brushB < underB ? brushB : underB) * bleed03) |
+            0;
 
-            // Get existing color (the undercoat)
-            const underR = pixels[idx];
-            const underG = pixels[idx + 1];
-            const underB = pixels[idx + 2];
+          // Blend the mixed color onto the canvas
+          pixels[idx] = (underR + (mixedR - underR) * strokeStrength) | 0;
+          pixels[idx + 1] = (underG + (mixedG - underG) * strokeStrength) | 0;
+          pixels[idx + 2] = (underB + (mixedB - underB) * strokeStrength) | 0;
+          pixels[idx + 3] = 255;
 
-            // Get paint thickness from separate map (0-1 range)
-            const existingThickness = thicknessMap[thicknessIdx];
-            const undercoatBleed =
-              UNDERCOAT_STRENGTH *
-              (existingThickness > 1 ? 1 : existingThickness);
-
-            // Subtractive-ish color mixing (like real paint)
-            const bleedComp = 1 - undercoatBleed;
-            const bleed07 = undercoatBleed * 0.7;
-            const bleed03 = undercoatBleed * 0.3;
-
-            const mixedR =
-              (brushR * bleedComp +
-                underR * bleed07 +
-                (brushR < underR ? brushR : underR) * bleed03) |
-              0;
-            const mixedG =
-              (brushG * bleedComp +
-                underG * bleed07 +
-                (brushG < underG ? brushG : underG) * bleed03) |
-              0;
-            const mixedB =
-              (brushB * bleedComp +
-                underB * bleed07 +
-                (brushB < underB ? brushB : underB) * bleed03) |
-              0;
-
-            // Blend the mixed color onto the canvas
-            pixels[idx] = (underR + (mixedR - underR) * strokeStrength) | 0;
-            pixels[idx + 1] = (underG + (mixedG - underG) * strokeStrength) | 0;
-            pixels[idx + 2] = (underB + (mixedB - underB) * strokeStrength) | 0;
-            pixels[idx + 3] = 255;
-
-            // Accumulate paint thickness
-            thicknessMap[thicknessIdx] += strokeStrength * 0.3;
-          }
+          // Accumulate paint thickness
+          thicknessMap[thicknessIdx] += strokeStrength * 0.3;
         }
       }
 
