@@ -1233,56 +1233,57 @@ export default function Home() {
     }
 
     const raycast = (
-      event: PointerEvent | MouseEvent
-    ): RaycastResult | null => {
-      const currentScene = sceneRef.current;
-      const camera = cameraRef.current;
-      if (!currentScene || !camera || !container) return null;
+    event: PointerEvent | MouseEvent
+  ): RaycastResult | null => {
+    const currentScene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!currentScene || !camera || !container) return null;
 
-      const rect = container.getBoundingClientRect();
+    const rect = container.getBoundingClientRect();
 
-      // Convert screen coordinates to normalized device coordinates (-1 to 1)
-      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    // Convert screen coordinates to normalized device coordinates (-1 to 1)
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-      mouseRef.current.set(x, y);
-      raycasterRef.current.setFromCamera(mouseRef.current, camera);
+    mouseRef.current.set(x, y);
+    raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
-      // Enable firstHitOnly for BVH optimization (we only need the first hit)
-      (raycasterRef.current as any).firstHitOnly = true;
+    // OPTIMIZATION: Use BVH accelerated raycasting
+    // firstHitOnly = true makes it stop at the first intersection, which is much faster
+    // This requires the mesh geometry to have computeBoundsTree() called (done in modelLoader)
+    (raycasterRef.current as any).firstHitOnly = true;
 
-      // Check for intersections with ALL objects in the scene
-      const intersects = raycasterRef.current.intersectObjects(
-        currentScene.children,
-        true
-      );
+    // Check for intersections with paintable meshes
+    const intersects = raycasterRef.current.intersectObjects(
+      paintableMeshesRef.current,
+      false
+    );
 
-      // Find first intersection that has UV coordinates (is a mesh, not the cursor)
-      for (const intersect of intersects) {
-        // Skip the brush cursor itself
-        if (intersect.object === brushCursorRef.current) continue;
+    for (const intersect of intersects) {
+      // Skip the brush cursor itself
+      if (intersect.object === brushCursorRef.current) continue;
 
-        if (
-          intersect.uv &&
-          intersect.object instanceof THREE.Mesh &&
-          intersect.face &&
-          intersect.faceIndex !== undefined &&
-          intersect.faceIndex !== null
-        ) {
-          return {
-            uv: intersect.uv.clone(),
-            point: intersect.point.clone(),
-            normal: intersect.face.normal
-              .clone()
-              .transformDirection(intersect.object.matrixWorld),
-            faceIndex: intersect.faceIndex,
-            mesh: intersect.object,
-          };
-        }
+      if (
+        intersect.uv &&
+        intersect.object instanceof THREE.Mesh &&
+        intersect.face &&
+        intersect.faceIndex !== undefined &&
+        intersect.faceIndex !== null
+      ) {
+        return {
+          uv: intersect.uv.clone(),
+          point: intersect.point.clone(),
+          normal: intersect.face.normal
+            .clone()
+            .transformDirection(intersect.object.matrixWorld),
+          faceIndex: intersect.faceIndex,
+          mesh: intersect.object,
+        };
       }
+    }
 
-      return null;
-    };
+    return null;
+  };
 
     // Legacy wrapper for UV-only access
     const raycastToUV = (event: PointerEvent): THREE.Vector2 | null => {

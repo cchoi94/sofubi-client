@@ -10,7 +10,9 @@ import { copyUVTransform } from "./paintTexture";
 import { getShaderById, DEFAULT_SHADER_ID, type ShaderConfig } from "~/shaders";
 
 // Extend THREE.js with BVH methods
+// @ts-ignore
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+// @ts-ignore
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
@@ -98,6 +100,7 @@ export function loadModel(
 
           // Build BVH for fast raycasting
           if (child.geometry) {
+            // @ts-ignore
             child.geometry.computeBoundsTree();
           }
         }
