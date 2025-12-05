@@ -1621,6 +1621,26 @@ export default function Home() {
               islandData.triangleToIsland.get(result.faceIndex) ?? null;
 
             if (island && islandIndex !== null) {
+              // Calculate contrast color for visibility
+              // Only apply high contrast if the color is grayscale (low saturation)
+              const hex = brushRef.current.color.replace("#", "");
+              const r = parseInt(hex.substring(0, 2), 16);
+              const g = parseInt(hex.substring(2, 4), 16);
+              const b = parseInt(hex.substring(4, 6), 16);
+              
+              // Calculate Chroma (saturation proxy): max - min
+              const max = Math.max(r, g, b);
+              const min = Math.min(r, g, b);
+              const chroma = max - min;
+              
+              let displayColor = brushRef.current.color;
+
+              // If chroma is low (< 10), it's a shade of gray/black/white
+              if (chroma < 10) {
+                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                displayColor = luminance > 0.5 ? "#000000" : "#FFFFFF";
+              }
+
               // Update highlight
               if (highlightManagerRef.current) {
                 highlightManagerRef.current.setHighlight(
@@ -1628,7 +1648,7 @@ export default function Home() {
                   islandIndex,
                   result.mesh.geometry,
                   result.mesh,
-                  brushRef.current.color
+                  displayColor
                 );
               }
 
@@ -1639,7 +1659,7 @@ export default function Home() {
                   result.mesh.geometry,
                   result.mesh
                 );
-                sporeEmitterRef.current.setColor(brushRef.current.color);
+                sporeEmitterRef.current.setColor(displayColor);
                 sporeEmitterRef.current.setEmitting(true);
               }
 

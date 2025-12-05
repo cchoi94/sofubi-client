@@ -209,7 +209,28 @@ export function updateHighlightColor(
   highlight: SectionHighlight,
   color: THREE.Color | string
 ): void {
-  highlight.material.uniforms.uColor.value = new THREE.Color(color);
+  const threeColor = new THREE.Color(color);
+  highlight.material.uniforms.uColor.value = threeColor;
+
+  // Dynamic Blending:
+  // - Bright colors (White/Colors) -> AdditiveBlending (Glow)
+  // - Dark colors (Black) -> NormalBlending (Overlay/Shadow)
+  // Additive blending with black (0,0,0) is invisible, so we must switch to Normal.
+  const luminance =
+    0.299 * threeColor.r + 0.587 * threeColor.g + 0.114 * threeColor.b;
+
+  if (luminance < 0.2) {
+    // Dark color -> Overlay mode
+    highlight.material.blending = THREE.NormalBlending;
+    // Boost opacity slightly for shadow visibility
+    highlight.material.uniforms.uOpacity.value = 0.6;
+  } else {
+    // Bright color -> Glow mode
+    highlight.material.blending = THREE.AdditiveBlending;
+    highlight.material.uniforms.uOpacity.value = 0.4;
+  }
+  
+  highlight.material.needsUpdate = true;
 }
 
 /**
