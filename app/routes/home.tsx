@@ -1092,7 +1092,7 @@ export default function Home() {
       // Airbrush conic spray settings
       const isAirbrush = brush.type === BrushType.Airbrush;
       // Spray density: how many particles per call (percentage of pixels)
-      const sprayDensity = 0.3; // 40% of pixels get painted each frame
+      const sprayDensity = 0.3; // 30% of pixels get painted each frame
 
       // Blend new color with existing pixels within the brush circle
       // OPTIMIZATION: Loop unrolling or typed arrays could help further, but avoiding Math.sqrt/exp is the big win here.
@@ -1116,14 +1116,14 @@ export default function Home() {
 
             // For airbrush: conic spray pattern - dense circular center with sparse outer spray
             if (isAirbrush) {
-                // Determine probability using lookup table based on squared distance
-                // Index maps 0..1 ratioSq to 0..TABLE_SIZE
-                const tableIndex = (ratioSq * (GAUSSIAN_TABLE_SIZE - 1)) | 0;
-                const conicProbability = sprayDensity * gaussianTable[tableIndex];
+              // Determine probability using lookup table based on squared distance
+              // Index maps 0..1 ratioSq to 0..TABLE_SIZE
+              const tableIndex = (ratioSq * (GAUSSIAN_TABLE_SIZE - 1)) | 0;
+              const conicProbability = sprayDensity * gaussianTable[tableIndex];
 
-                if (seededRandom() > conicProbability) {
-                    continue; // Skip this pixel - not sprayed
-                }
+              if (seededRandom() > conicProbability) {
+                continue; // Skip this pixel - not sprayed
+              }
             }
 
             // Edge falloff based on hardness
@@ -1133,24 +1133,25 @@ export default function Home() {
 
             // Compute falloff: soft brushes fade gradually, hard brushes stay solid longer
             let edgeFalloff: number;
-            
+
             if (isAirbrush) {
-                // OPTIMIZED: Use pre-calculated ratioSq for falloff
-                // We want a curve similar to Math.pow(1 - sqrt(ratioSq), 2.0)
-                // (1 - ratioSq)^2 is a purely squared-based curve that looks reasonably similar (soft hump)
-                // and saves the square root.
-                const falloffBase = 1 - ratioSq;
-                edgeFalloff = falloffBase * falloffBase;
+              // OPTIMIZED: Use pre-calculated ratioSq for falloff
+              // We want a curve similar to Math.pow(1 - sqrt(ratioSq), 2.0)
+              // (1 - ratioSq)^2 is a purely squared-based curve that looks reasonably similar (soft hump)
+              // and saves the square root.
+              const falloffBase = 1 - ratioSq;
+              edgeFalloff = falloffBase * falloffBase;
             } else if (hardness >= 0.95) {
-               // Hard edge needs actual distance ratio for precise cutoff
-               // We pay the sqrt cost here only for hard brushes near the edge
-               // But usually hard brushes are solid so we can just use ratioSq check
-               if (ratioSq < 0.81) { // 0.9 * 0.9
-                   edgeFalloff = 1;
-               } else {
-                   const r = Math.sqrt(ratioSq);
-                   edgeFalloff = (1 - r) * 10;
-               }
+              // Hard edge needs actual distance ratio for precise cutoff
+              // We pay the sqrt cost here only for hard brushes near the edge
+              // But usually hard brushes are solid so we can just use ratioSq check
+              if (ratioSq < 0.81) {
+                // 0.9 * 0.9
+                edgeFalloff = 1;
+              } else {
+                const r = Math.sqrt(ratioSq);
+                edgeFalloff = (1 - r) * 10;
+              }
             } else {
               // Soft to medium - stick to original behavior as it might rely on specific curve feel
               // But we can optimize if needed. For now, keep as is for non-airbrush compatibility.
@@ -1233,57 +1234,57 @@ export default function Home() {
     }
 
     const raycast = (
-    event: PointerEvent | MouseEvent
-  ): RaycastResult | null => {
-    const currentScene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (!currentScene || !camera || !container) return null;
+      event: PointerEvent | MouseEvent
+    ): RaycastResult | null => {
+      const currentScene = sceneRef.current;
+      const camera = cameraRef.current;
+      if (!currentScene || !camera || !container) return null;
 
-    const rect = container.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
 
-    // Convert screen coordinates to normalized device coordinates (-1 to 1)
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      // Convert screen coordinates to normalized device coordinates (-1 to 1)
+      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    mouseRef.current.set(x, y);
-    raycasterRef.current.setFromCamera(mouseRef.current, camera);
+      mouseRef.current.set(x, y);
+      raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
-    // OPTIMIZATION: Use BVH accelerated raycasting
-    // firstHitOnly = true makes it stop at the first intersection, which is much faster
-    // This requires the mesh geometry to have computeBoundsTree() called (done in modelLoader)
-    (raycasterRef.current as any).firstHitOnly = true;
+      // OPTIMIZATION: Use BVH accelerated raycasting
+      // firstHitOnly = true makes it stop at the first intersection, which is much faster
+      // This requires the mesh geometry to have computeBoundsTree() called (done in modelLoader)
+      (raycasterRef.current as any).firstHitOnly = true;
 
-    // Check for intersections with paintable meshes
-    const intersects = raycasterRef.current.intersectObjects(
-      paintableMeshesRef.current,
-      false
-    );
+      // Check for intersections with paintable meshes
+      const intersects = raycasterRef.current.intersectObjects(
+        paintableMeshesRef.current,
+        false
+      );
 
-    for (const intersect of intersects) {
-      // Skip the brush cursor itself
-      if (intersect.object === brushCursorRef.current) continue;
+      for (const intersect of intersects) {
+        // Skip the brush cursor itself
+        if (intersect.object === brushCursorRef.current) continue;
 
-      if (
-        intersect.uv &&
-        intersect.object instanceof THREE.Mesh &&
-        intersect.face &&
-        intersect.faceIndex !== undefined &&
-        intersect.faceIndex !== null
-      ) {
-        return {
-          uv: intersect.uv.clone(),
-          point: intersect.point.clone(),
-          normal: intersect.face.normal
-            .clone()
-            .transformDirection(intersect.object.matrixWorld),
-          faceIndex: intersect.faceIndex,
-          mesh: intersect.object,
-        };
+        if (
+          intersect.uv &&
+          intersect.object instanceof THREE.Mesh &&
+          intersect.face &&
+          intersect.faceIndex !== undefined &&
+          intersect.faceIndex !== null
+        ) {
+          return {
+            uv: intersect.uv.clone(),
+            point: intersect.point.clone(),
+            normal: intersect.face.normal
+              .clone()
+              .transformDirection(intersect.object.matrixWorld),
+            faceIndex: intersect.faceIndex,
+            mesh: intersect.object,
+          };
+        }
       }
-    }
 
-    return null;
-  };
+      return null;
+    };
 
     // Legacy wrapper for UV-only access
     const raycastToUV = (event: PointerEvent): THREE.Vector2 | null => {
