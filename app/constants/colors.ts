@@ -21,7 +21,7 @@ export const DEFAULT_COLORS = [
  */
 export const SHADER_BASE_COLORS: Record<string, string> = {
   [ShaderId.GLASS]: "#f0f0f0",
-  [ShaderId.TRANSPARENT_PLASTIC]: "#f8f8f8",
+  [ShaderId.PLASTIC]: "#888888",
   [ShaderId.STANDARD]: "#ffffff",
   [ShaderId.CERAMIC]: "#fafafa",
   [ShaderId.PEARLESCENT]: "#e0e0e0",
@@ -31,7 +31,7 @@ export const SHADER_BASE_COLORS: Record<string, string> = {
 /**
  * Default base color for the paint canvas
  */
-export const BASE_COLOR = "#f0f0f0";
+export const BASE_COLOR = "#888888";
 
 /**
  * Get the base color for a specific shader

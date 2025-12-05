@@ -1,9 +1,9 @@
 /**
- * Frosted Plastic Shader
+ * Plastic Shader
  *
- * See-through frosted plastic with transmission.
- * - transmission: 1 (fully see-through)
- * - roughness: 0.7 (frosted/diffused look)
+ * Standard plastic material.
+ * - transmission: 0 (opaque)
+ * - roughness: 0.5 (standard plastic)
  * - clearcoat: for shiny plastic surface
  */
 
@@ -15,14 +15,14 @@ import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "color", type: "color", default: "#e8eaec" },
+  { name: "color", type: "color", default: "#888888" },
   {
     name: "transmission",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 1.0,
+    default: 0.0,
   },
   {
     name: "thickness",
@@ -30,7 +30,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 2,
     step: 0.01,
-    default: 1.0,
+    default: 0.0,
   },
   {
     name: "roughness",
@@ -38,7 +38,7 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.7,
+    default: 0.5,
   },
   {
     name: "clearcoat",
@@ -71,29 +71,28 @@ const guiParams: ShaderGuiParam[] = [
 // ============================================================================
 
 /**
- * Creates a frosted plastic material with transmission.
+ * Creates a plastic material.
  *
- * Key difference from glass: higher roughness (0.7) for frosted look
- * Plus clearcoat for that shiny plastic surface.
+ * Standard opaque plastic with shiny surface.
  */
 function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
-    // Essential for transmission to work
-    transparent: true,
+    // Essential for transmission to work (if enabled)
+    transparent: false,
 
-    // Core properties - roughness is key for frosted look
+    // Core properties
     metalness: 0,
-    roughness: 0.7, // Frosted/diffused!
-    transmission: 1,
-    thickness: 1.0,
+    roughness: 0.5,
+    transmission: 0,
+    thickness: 0,
     ior: 1.5,
 
-    // Clearcoat - shiny surface on top of frosted material
+    // Clearcoat - shiny surface on top of plastic material
     clearcoat: 1.0,
     clearcoatRoughness: 0.1,
 
-    // Color - slight tint
-    color: new THREE.Color("#e8eaec"),
+    // Color - grey default
+    color: new THREE.Color("#888888"),
     envMapIntensity: 1.0,
 
     // Paint texture
@@ -127,6 +126,8 @@ function updateUniforms(
       physicalMat.color.set(value);
     } else if (key === "transmission") {
       physicalMat.transmission = value;
+      // Enable transparency if transmission > 0
+      physicalMat.transparent = value > 0;
     } else if (key === "thickness") {
       physicalMat.thickness = value;
     } else if (key === "roughness") {
@@ -154,10 +155,10 @@ function dispose(material: THREE.Material): void {
 // EXPORT
 // ============================================================================
 
-export const transparentPlasticShader: CustomShader = {
-  name: "Frosted Plastic",
-  id: "transparent-plastic",
-  description: "See-through frosted plastic with shiny surface",
+export const plasticShader: CustomShader = {
+  name: "Plastic",
+  id: "plastic",
+  description: "Standard plastic material",
   createMaterial,
   guiParams,
   updateUniforms,

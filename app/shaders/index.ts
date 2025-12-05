@@ -8,7 +8,7 @@
 import type { CustomShader, ShaderConfig, ShaderGuiParam } from "./types";
 import { standardShader } from "./standard";
 import { pearlescentArmorShader } from "./pearlescent-armor/index";
-import { transparentPlasticShader } from "./transparent-plastic/index";
+import { plasticShader } from "./transparent-plastic/index";
 import { glassShader } from "./glass/index";
 import { ceramicShader } from "./ceramic/index";
 import { metalShader } from "./metal/index";
@@ -23,7 +23,7 @@ export type { CustomShader, ShaderConfig, ShaderGuiParam };
 export const ShaderId = {
   STANDARD: "standard-pbr",
   CERAMIC: "ceramic-glaze",
-  TRANSPARENT_PLASTIC: "transparent-plastic",
+  PLASTIC: "transparent-plastic",
   METAL: "metal",
   PEARLESCENT: "pearlescent-armor",
   GLASS: "glass",
@@ -40,11 +40,11 @@ export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
  */
 export const shaders: CustomShader[] = [
   // standardShader,
-  ceramicShader,
+  // ceramicShader,
   metalShader,
-  pearlescentArmorShader,
+  plasticShader,
+  // pearlescentArmorShader,
   // glassShader,
-  // transparentPlasticShader,
 ];
 
 /**
@@ -71,13 +71,13 @@ export function getShaderNames(): { id: string; name: string }[] {
 /**
  * Default shader ID
  */
-export const DEFAULT_SHADER_ID: ShaderIdType = ShaderId.CERAMIC;
+export const DEFAULT_SHADER_ID: ShaderIdType = ShaderId.METAL;
 
 // Named exports for individual shaders
 export {
   // standardShader,
   pearlescentArmorShader,
-  transparentPlasticShader,
+  plasticShader,
   glassShader,
   ceramicShader,
   metalShader,

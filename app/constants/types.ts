@@ -80,5 +80,7 @@ export interface BottomToolbarProps {
   onColorCommit: (color: string) => void;
   currentModel: ModelOption | null;
   onModelChange: (model: ModelOption) => void;
+  onResetAxis?: () => void;
+  isTransformDirty?: boolean;
   hudVisible?: boolean;
 }

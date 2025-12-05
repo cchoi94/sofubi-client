@@ -28,6 +28,7 @@ import {
   setupThreeScene,
   createResizeHandler,
   disposeThreeScene,
+  DEFAULT_CAMERA_CONFIG,
 } from "~/three-utils";
 
 // Fill brush utilities
@@ -229,6 +230,9 @@ export default function Home() {
 
   // Ref for cursor mode to use in event handlers
   const cursorModeRef = useRef<CursorMode>(CursorMode.Paint);
+
+  // Track if model transformation has changed from default
+  const [isTransformDirty, setIsTransformDirty] = useState<boolean>(false);
 
   // Sync cursor mode with ref
   useEffect(() => {
@@ -1481,6 +1485,8 @@ export default function Home() {
         modelPivotRef.current.position.copy(dragStartModelPosRef.current);
         modelPivotRef.current.position.addScaledVector(cameraRight, deltaX);
         modelPivotRef.current.position.addScaledVector(cameraUp, deltaY);
+
+        setIsTransformDirty(true);
         return;
       }
 
@@ -1504,13 +1510,18 @@ export default function Home() {
         lastRotateTimeRef.current = now;
         lastMousePosRef.current = { x: event.clientX, y: event.clientY };
 
-        // Create rotation quaternions around Y-axis (horizontal drag) and X-axis (vertical drag)
+        // Get camera basis for natural rotation
+        const cameraRight = new THREE.Vector3();
+        const cameraUp = new THREE.Vector3();
+        camera.matrix.extractBasis(cameraRight, cameraUp, new THREE.Vector3());
+
+        // Create rotation quaternions around World Y (horizontal drag) and Camera Right (vertical drag)
         const rotationY = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0),
+          new THREE.Vector3(0, 1, 0), // Keep World Y for ground-plane turntable feel
           deltaX
         );
         const rotationX = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(1, 0, 0),
+          cameraRight, // Use Camera Right for screen-relative pitch
           deltaY
         );
         const combinedRotation = new THREE.Quaternion()
@@ -1538,6 +1549,8 @@ export default function Home() {
 
         modelPivotRef.current.quaternion.copy(newQuaternion);
         modelPivotRef.current.position.copy(newPosition);
+
+        setIsTransformDirty(true);
         return;
       }
 
@@ -1806,7 +1819,7 @@ export default function Home() {
     };
 
     /**
-     * Handle mouse wheel for zooming (move camera closer/further)
+     * Handle mouse wheel for zooming towards cursor position
      */
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -1814,11 +1827,41 @@ export default function Home() {
       const zoomSpeed = 0.001;
       const delta = event.deltaY * zoomSpeed;
 
-      // Move camera along its forward direction
-      const direction = new THREE.Vector3();
-      camera.getWorldDirection(direction);
+      // Get cursor position in normalized device coordinates
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // Calculate new position
+      // Create a ray from camera through cursor position
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+
+      // Get the point along the ray at a reasonable distance (or use raycast hit)
+      let zoomTarget: THREE.Vector3;
+
+      // Try to hit the model for a more accurate zoom point
+      const meshes = (modelObjRef.current as any)?.__paintableMeshes as
+        | THREE.Mesh[]
+        | undefined;
+      if (meshes && meshes.length > 0) {
+        const intersects = raycaster.intersectObjects(meshes, false);
+        if (intersects.length > 0) {
+          zoomTarget = intersects[0].point;
+        } else {
+          // No hit - use a point along the ray at the distance to origin
+          const distToOrigin = camera.position.length();
+          zoomTarget = raycaster.ray.at(distToOrigin, new THREE.Vector3());
+        }
+      } else {
+        // No model - zoom towards origin along cursor ray
+        const distToOrigin = camera.position.length();
+        zoomTarget = raycaster.ray.at(distToOrigin, new THREE.Vector3());
+      }
+
+      // Calculate direction from camera to zoom target
+      const direction = zoomTarget.clone().sub(camera.position).normalize();
+
+      // Calculate new camera position (move towards/away from target point)
       const newPos = camera.position.clone();
       newPos.addScaledVector(direction, -delta);
 
@@ -2057,20 +2100,52 @@ export default function Home() {
         <BottomToolbar
           brush={brush}
           onBrushChange={handleBrushChange}
-          currentShader={currentShader}
-          onShaderChange={handleShaderChange}
+          currentShader={currentShaderIdRef.current}
+          onShaderChange={applyShaderRef.current || (() => {})}
           cursorMode={cursorMode}
           onCursorModeChange={setCursorMode}
           colorHistory={colorHistory}
           onColorChange={handleColorSelect}
           onColorCommit={handleColorCommit}
-          hudVisible={hudVisible}
           currentModel={selectedModel}
-          onModelChange={handleModelChange}
+          onModelChange={(model) => {
+            setSelectedModel(model);
+            setIsLoading(true);
+          }}
+          onResetAxis={() => {
+            if (modelPivotRef.current) {
+              // Reset position and rotation to identity/zero
+              modelPivotRef.current.position.set(0, 0, 0);
+              modelPivotRef.current.quaternion.identity();
+
+              // Reset velocity trackers
+              moveVelocityRef.current = { x: 0, y: 0 };
+              rotateVelocityRef.current = { x: 0, y: 0 };
+
+              setIsTransformDirty(false);
+
+              // Reset OrbitControls target
+            if (controlsRef.current) {
+                controlsRef.current.target.set(0, 0, 0);
+            }
+            
+            // Reset Camera Position
+            if (cameraRef.current && DEFAULT_CAMERA_CONFIG.position) {
+              const [x, y, z] = DEFAULT_CAMERA_CONFIG.position;
+              cameraRef.current.position.set(x, y, z);
+              // Ensure camera looks at the new target (0,0,0)
+              cameraRef.current.lookAt(0, 0, 0);
+            }
+            
+            if (controlsRef.current) {
+              controlsRef.current.update();
+            }
+          }
+        }}
+          isTransformDirty={isTransformDirty}
+          hudVisible={hudVisible}
         />
       </div>
-
-      {/* Share Modal */}
       <ShareModal
         isOpen={shareModalOpen}
         imageUrl={screenshotUrl}
