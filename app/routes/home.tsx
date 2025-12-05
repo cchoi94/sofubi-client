@@ -117,11 +117,12 @@ export default function Home() {
   const brushCursorRef = useRef<THREE.Mesh | null>(null);
   const brushCursorOutlineRef = useRef<THREE.Mesh | null>(null);
 
-  // Brush Stamp Optimization
-  const brushStampRef = useRef<Float32Array | null>(null);
+  // Brush Stamp Optimization (Native Canvas)
+  const brushStampCanvasRef = useRef<HTMLCanvasElement[] | null>(null);
   const lastStampRadiusRef = useRef<number>(0);
   const lastStampHardnessRef = useRef<number>(0);
   const lastStampTypeRef = useRef<BrushType | null>(null);
+  const lastStampColorRef = useRef<string>("");
 
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
@@ -1025,93 +1026,118 @@ export default function Home() {
     let cachedColorHex = "";
     let cachedColorRgb = { r: 0, g: 0, b: 0 };
 
-    // Update the pre-computed brush stamp if brush properties changed
+    // Update the pre-computed brush stamp (Native Canvas)
     const updateBrushStamp = (
       radius: number,
       hardness: number,
+      color: string,
       type: BrushType
     ) => {
       // Check if we need to update
       if (
-        brushStampRef.current &&
+        brushStampCanvasRef.current &&
         lastStampRadiusRef.current === radius &&
         lastStampHardnessRef.current === hardness &&
-        lastStampTypeRef.current === type
+        lastStampTypeRef.current === type &&
+        lastStampColorRef.current === color
       ) {
         return;
       }
 
       const size = Math.ceil(radius * 2);
-      const stampSize = size * size;
-      const stamp = new Float32Array(stampSize);
-      const radiusSq = radius * radius;
+      const STAMP_COUNT = 3; // Generate 3 variations for dynamic feel without rotation
+      const stamps: HTMLCanvasElement[] = [];
 
       // Airbrush constants
       const isAirbrush = type === BrushType.Airbrush;
-      const GAUSSIAN_SHARPNESS = 3.6; // Controls how tight the core is
+      // Iwata Tuning: High sharpness for tight core, High density for fine atomization
+      const GAUSSIAN_SHARPNESS = 15.0;
+      const STAMP_DENSITY = 1.0;
+      const radiusSq = radius * radius;
 
-      for (let y = 0; y < size; y++) {
-        const dy = y - radius; // Distance from center
-        const dySq = dy * dy;
+      // Parse color
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
 
-        for (let x = 0; x < size; x++) {
-          const dx = x - radius;
-          const distSq = dx * dx + dySq;
+      for (let i = 0; i < STAMP_COUNT; i++) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
 
-          if (distSq > radiusSq) {
-            stamp[y * size + x] = 0;
-            continue;
-          }
+        const imgData = ctx.createImageData(size, size);
+        const data = imgData.data;
 
-          const ratioSq = distSq / radiusSq;
-          let alpha = 0;
+        for (let y = 0; y < size; y++) {
+          const dy = y - radius;
+          const dySq = dy * dy;
 
-          if (isAirbrush) {
-            // Iwata Airbrush: Gaussian distribution
-            // P = exp(-k * r^2)
-            // We bake the probability directly into the alpha
-            // This replaces the stochastic "random()" check with a smooth alpha blend
-            alpha = Math.exp(-GAUSSIAN_SHARPNESS * ratioSq);
+          for (let x = 0; x < size; x++) {
+            const dx = x - radius;
+            const distSq = dx * dx + dySq;
 
-            // Apply a soft quadratic falloff to the alpha itself to ensure it hits 0 at edge
-            const falloff = 1 - ratioSq;
-            alpha *= falloff * falloff;
-          } else {
-            // Standard Brush Falloff
-            let edgeFalloff = 0;
-            if (hardness >= 0.95) {
-              // Hard edge
-              if (ratioSq < 0.81) {
-                edgeFalloff = 1;
+            if (distSq > radiusSq) continue;
+
+            const ratioSq = distSq / radiusSq;
+            let alpha = 0;
+
+            if (isAirbrush) {
+              // Iwata Airbrush: Gaussian distribution
+              const probability =
+                Math.exp(-GAUSSIAN_SHARPNESS * ratioSq) * STAMP_DENSITY;
+              const falloff = 1 - ratioSq;
+              const finalProb = probability * falloff * falloff;
+
+              // Stochastic check: bake the noise into the stamp
+              if (Math.random() < finalProb) {
+                alpha = 1;
               } else {
-                const r = Math.sqrt(ratioSq);
-                edgeFalloff = (1 - r) * 10;
+                alpha = 0;
               }
             } else {
-              // Soft/Medium
-              const distRatio = Math.sqrt(distSq) / radius;
-              const softness = 1 - hardness;
-              const curve = 0.5 + softness * 2;
-              edgeFalloff = Math.pow(1 - distRatio, curve);
+              // Standard Brush Falloff (Smooth)
+              let edgeFalloff = 0;
+              if (hardness >= 0.95) {
+                if (ratioSq < 0.81) {
+                  edgeFalloff = 1;
+                } else {
+                  const r = Math.sqrt(ratioSq);
+                  edgeFalloff = (1 - r) * 10;
+                }
+              } else {
+                const distRatio = Math.sqrt(distSq) / radius;
+                const softness = 1 - hardness;
+                const curve = 0.5 + softness * 2;
+                edgeFalloff = Math.pow(1 - distRatio, curve);
+              }
+              alpha = edgeFalloff;
             }
-            alpha = edgeFalloff;
-          }
 
-          stamp[y * size + x] = alpha;
+            const idx = (y * size + x) * 4;
+            data[idx] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+            data[idx + 3] = Math.floor(alpha * 255);
+          }
         }
+
+        ctx.putImageData(imgData, 0, 0);
+        stamps.push(canvas);
       }
 
-      brushStampRef.current = stamp;
+      brushStampCanvasRef.current = stamps;
       lastStampRadiusRef.current = radius;
       lastStampHardnessRef.current = hardness;
       lastStampTypeRef.current = type;
+      lastStampColorRef.current = color;
     };
 
     const paintAtUV = (uv: THREE.Vector2) => {
       const ctx = paintCtxRef.current;
       const texture = paintTextureRef.current;
-      const thicknessMap = thicknessMapRef.current;
-      if (!ctx || !texture || !thicknessMap) return;
+      if (!ctx || !texture) return;
 
       // Wrap UV coordinates to 0-1 range using modulo
       let u = uv.x % 1;
@@ -1127,128 +1153,34 @@ export default function Home() {
       const radius = brush.radius;
 
       // Update stamp if needed
-      updateBrushStamp(radius, brush.hardness, brush.type);
-      const stamp = brushStampRef.current;
-      if (!stamp) return;
+      updateBrushStamp(radius, brush.hardness, brush.color, brush.type);
+      const stamps = brushStampCanvasRef.current;
+      if (!stamps || stamps.length === 0) return;
 
-      // Parse brush color (cached)
-      if (brush.color !== cachedColorHex) {
-        cachedColorHex = brush.color;
-        cachedColorRgb = {
-          r: parseInt(brush.color.slice(1, 3), 16),
-          g: parseInt(brush.color.slice(3, 5), 16),
-          b: parseInt(brush.color.slice(5, 7), 16),
-        };
-      }
-      const brushR = cachedColorRgb.r;
-      const brushG = cachedColorRgb.g;
-      const brushB = cachedColorRgb.b;
+      // Pick a random stamp to create dynamic noise effect without rotation
+      const stampIndex = Math.floor(Math.random() * stamps.length);
+      const stampCanvas = stamps[stampIndex];
 
-      // Get the area we'll be painting on
-      const x = Math.floor(px - radius);
-      const y = Math.floor(py - radius);
-      const size = Math.ceil(radius * 2);
+      // Calculate draw position (centered on UV)
+      const drawX = px - radius;
+      const drawY = py - radius;
 
-      // Clamp to canvas bounds
-      const sx = Math.max(0, x);
-      const sy = Math.max(0, y);
-      const ex = Math.min(PAINT_CANVAS_SIZE, x + size);
-      const ey = Math.min(PAINT_CANVAS_SIZE, y + size);
-      const width = ex - sx;
-      const height = ey - sy;
+      // Configure context for blending
+      ctx.globalCompositeOperation = "source-over";
 
-      if (width <= 0 || height <= 0) return;
-
-      // Read existing pixels from the canvas
-      // Note: 'willReadFrequently: true' makes this faster
-      const imageData = ctx.getImageData(sx, sy, width, height);
-      const pixels = imageData.data;
-
-      // Underpainting parameters
-      const UNDERCOAT_STRENGTH = 0.4;
-      const MAX_COVERAGE = 0.95;
-      // For airbrush, we lower the base opacity because the stamp accumulates fast
+      // Adjust opacity based on brush type
       const isAirbrush = brush.type === BrushType.Airbrush;
+      const MAX_COVERAGE = 0.95;
       const typeOpacityMult = isAirbrush ? 0.6 : 1.0;
-      const brushOpacity = brush.opacity * MAX_COVERAGE * typeOpacityMult;
 
-      // Stamp dimensions
-      const stampSize = size; // The stamp is always size*size
+      // Apply opacity
+      ctx.globalAlpha = brush.opacity * MAX_COVERAGE * typeOpacityMult;
 
-      // Blend loop - Optimized with Stamp
-      for (let dy = 0; dy < height; dy++) {
-        const worldY = sy + dy;
-        const rowOffset = dy * width * 4;
-        const thicknessRowOffset = worldY * PAINT_CANVAS_SIZE;
+      // Draw the stamp (No rotation for max performance)
+      ctx.drawImage(stampCanvas, drawX, drawY);
 
-        // Calculate corresponding Y in the stamp
-        // worldY = y + stampY => stampY = worldY - y
-        // But 'y' is the top-left of the brush box (unclamped)
-        // sy is the top-left of the clamped box
-        // So stampY = (sy + dy) - y
-        const stampY = sy + dy - y;
-
-        for (let dx = 0; dx < width; dx++) {
-          const worldX = sx + dx;
-          const stampX = sx + dx - x;
-
-          // Read alpha from stamp
-          const stampIdx = stampY * stampSize + stampX;
-          const alpha = stamp[stampIdx];
-
-          if (alpha <= 0.001) continue;
-
-          const idx = rowOffset + dx * 4;
-          const thicknessIdx = thicknessRowOffset + worldX;
-
-          // Calculate final stroke strength
-          const strokeStrength = Math.min(alpha * brushOpacity, 1);
-
-          // Get existing color (the undercoat)
-          const underR = pixels[idx];
-          const underG = pixels[idx + 1];
-          const underB = pixels[idx + 2];
-
-          // Get paint thickness from separate map (0-1 range)
-          const existingThickness = thicknessMap[thicknessIdx];
-          const undercoatBleed =
-            UNDERCOAT_STRENGTH *
-            (existingThickness > 1 ? 1 : existingThickness);
-
-          // Subtractive-ish color mixing (like real paint)
-          const bleedComp = 1 - undercoatBleed;
-          const bleed07 = undercoatBleed * 0.7;
-          const bleed03 = undercoatBleed * 0.3;
-
-          const mixedR =
-            (brushR * bleedComp +
-              underR * bleed07 +
-              (brushR < underR ? brushR : underR) * bleed03) |
-            0;
-          const mixedG =
-            (brushG * bleedComp +
-              underG * bleed07 +
-              (brushG < underG ? brushG : underG) * bleed03) |
-            0;
-          const mixedB =
-            (brushB * bleedComp +
-              underB * bleed07 +
-              (brushB < underB ? brushB : underB) * bleed03) |
-            0;
-
-          // Blend the mixed color onto the canvas
-          pixels[idx] = (underR + (mixedR - underR) * strokeStrength) | 0;
-          pixels[idx + 1] = (underG + (mixedG - underG) * strokeStrength) | 0;
-          pixels[idx + 2] = (underB + (mixedB - underB) * strokeStrength) | 0;
-          pixels[idx + 3] = 255;
-
-          // Accumulate paint thickness
-          thicknessMap[thicknessIdx] += strokeStrength * 0.3;
-        }
-      }
-
-      // Write blended pixels back to canvas
-      ctx.putImageData(imageData, sx, sy);
+      // Reset alpha
+      ctx.globalAlpha = 1.0;
 
       // Mark texture for update
       texture.needsUpdate = true;
@@ -1396,6 +1328,7 @@ export default function Home() {
           // We hit the model - paint
           controls.enabled = false;
           event.preventDefault();
+          (event.target as Element).setPointerCapture(event.pointerId);
 
           // Get paint context
           const ctx = paintCtxRef.current;

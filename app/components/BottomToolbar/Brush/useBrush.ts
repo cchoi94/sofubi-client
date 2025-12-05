@@ -36,6 +36,17 @@ export function useBrush(): UseBrushReturn {
     brushRef.current = brush;
   }, [brush]);
 
+  // Load saved color from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedColor = localStorage.getItem("sofubi_last_color");
+      if (savedColor) {
+        setBrush((prev) => ({ ...prev, color: savedColor }));
+        brushRef.current.color = savedColor;
+      }
+    }
+  }, []);
+
   /**
    * Handle partial brush state changes
    */
@@ -59,6 +70,11 @@ export function useBrush(): UseBrushReturn {
     // Update brush color
     setBrush((prev) => ({ ...prev, color }));
     brushRef.current.color = color;
+
+    // Save to localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem("sofubi_last_color", color);
+    }
 
     // Add to history (avoid duplicates, keep last 5 for history display)
     setColorHistory((prev) => {

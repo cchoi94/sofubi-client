@@ -46,6 +46,21 @@ export function ColorPicker({
     }
   }, [hudVisible]);
 
+  // Listen for native 'change' event on the input (fires when picker closes)
+  // React's onChange fires on 'input' (every drag step), which is too frequent for history/saving
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    const handleChange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      onColorCommit(target.value);
+    };
+
+    input.addEventListener("change", handleChange);
+    return () => input.removeEventListener("change", handleChange);
+  }, [onColorCommit]);
+
   return (
     <>
       {/* Hidden native color input */}
