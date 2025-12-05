@@ -113,6 +113,7 @@ export default function Home() {
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const brushCursorRef = useRef<THREE.Mesh | null>(null);
+  const brushCursorOutlineRef = useRef<THREE.Mesh | null>(null);
 
   // Painting state (using refs for performance in event handlers)
   const isPaintingRef = useRef<boolean>(false);
@@ -124,6 +125,8 @@ export default function Home() {
   const rotateStartQuaternionRef = useRef<THREE.Quaternion>(
     new THREE.Quaternion()
   );
+  const rotatePivotPointRef = useRef<THREE.Vector3>(new THREE.Vector3()); // 3D point to rotate around
+  const rotateStartPivotPosRef = useRef<THREE.Vector3>(new THREE.Vector3()); // Pivot group position at start
   // Velocity tracking for momentum on release
   const lastMoveTimeRef = useRef<number>(0);
   const moveVelocityRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -615,6 +618,7 @@ export default function Home() {
     const cursorOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
     cursorOutline.renderOrder = 1000; // Render after fill
     brushCursor.add(cursorOutline); // Add as child so it moves with cursor
+    brushCursorOutlineRef.current = cursorOutline;
 
     // Smooth cursor position tracking
     const cursorTargetPos = new THREE.Vector3();
@@ -1297,7 +1301,7 @@ export default function Home() {
           return;
         }
 
-        // Rotate mode - rotate the model via pivot group
+        // Rotate mode - rotate the model around cursor position
         if (currentMode === CursorMode.Rotate) {
           controls.enabled = false;
           isRotatingModelRef.current = true;
@@ -1307,10 +1311,20 @@ export default function Home() {
           lastMousePosRef.current = { x: event.clientX, y: event.clientY };
           lastRotateTimeRef.current = performance.now();
           rotateVelocityRef.current = { x: 0, y: 0 };
+
+          // Store the 3D point to rotate around (where cursor is on model, or screen center projected)
+          if (result && result.point) {
+            rotatePivotPointRef.current.copy(result.point);
+          } else {
+            // If not hitting model, use origin as pivot
+            rotatePivotPointRef.current.set(0, 0, 0);
+          }
+
           if (modelPivotRef.current) {
             rotateStartQuaternionRef.current.copy(
               modelPivotRef.current.quaternion
             );
+            rotateStartPivotPosRef.current.copy(modelPivotRef.current.position);
           }
           return;
         }
@@ -1470,7 +1484,7 @@ export default function Home() {
         return;
       }
 
-      // Handle model rotation in rotate mode - orbit around model center (X and Y axis)
+      // Handle model rotation in rotate mode - orbit around cursor pivot point (X and Y axis)
       if (isRotatingModelRef.current && modelPivotRef.current) {
         const now = performance.now();
         const dt = now - lastRotateTimeRef.current;
@@ -1490,7 +1504,7 @@ export default function Home() {
         lastRotateTimeRef.current = now;
         lastMousePosRef.current = { x: event.clientX, y: event.clientY };
 
-        // Rotate around Y-axis (horizontal drag) and X-axis (vertical drag)
+        // Create rotation quaternions around Y-axis (horizontal drag) and X-axis (vertical drag)
         const rotationY = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(0, 1, 0),
           deltaX
@@ -1499,14 +1513,31 @@ export default function Home() {
           new THREE.Vector3(1, 0, 0),
           deltaY
         );
-
-        // Apply rotations: first Y (horizontal), then X (vertical), then initial
-        const newQuaternion = new THREE.Quaternion()
+        const combinedRotation = new THREE.Quaternion()
           .copy(rotationY)
-          .multiply(rotationX)
+          .multiply(rotationX);
+
+        // Get the pivot point in world space
+        const pivotWorld = rotatePivotPointRef.current.clone();
+
+        // Calculate new quaternion
+        const newQuaternion = new THREE.Quaternion()
+          .copy(combinedRotation)
           .multiply(rotateStartQuaternionRef.current);
 
+        // Rotate the pivot position around the cursor point
+        // 1. Get vector from pivot point to model center at start
+        const startPos = rotateStartPivotPosRef.current.clone();
+        const offsetFromPivot = startPos.clone().sub(pivotWorld);
+
+        // 2. Rotate that offset vector
+        offsetFromPivot.applyQuaternion(combinedRotation);
+
+        // 3. New position = pivot + rotated offset
+        const newPosition = pivotWorld.clone().add(offsetFromPivot);
+
         modelPivotRef.current.quaternion.copy(newQuaternion);
+        modelPivotRef.current.position.copy(newPosition);
         return;
       }
 
@@ -1854,6 +1885,32 @@ export default function Home() {
   }, [selectedModel]);
 
   // ============================================================================
+  // UPDATE BRUSH CURSOR ON BRUSH STATE CHANGE
+  // ============================================================================
+
+  useEffect(() => {
+    const cursor = brushCursorRef.current;
+    const outline = brushCursorOutlineRef.current;
+    if (!cursor) return;
+
+    // Scale based on brush radius (convert from UV pixels to world units)
+    const worldRadius = (brush.radius / PAINT_CANVAS_SIZE) * 1.2;
+    cursor.scale.setScalar(worldRadius / 0.05); // 0.05 is base circle radius
+
+    // Update fill color
+    (cursor.material as THREE.MeshBasicMaterial).color.set(brush.color);
+
+    // Update outline to contrast with fill color
+    if (outline) {
+      const brushColor = new THREE.Color(brush.color);
+      const luminance =
+        0.299 * brushColor.r + 0.587 * brushColor.g + 0.114 * brushColor.b;
+      const outlineColor = luminance > 0.5 ? 0x333333 : 0xffffff;
+      (outline.material as THREE.MeshBasicMaterial).color.setHex(outlineColor);
+    }
+  }, [brush.radius, brush.color]);
+
+  // ============================================================================
   // CLEAR CANVAS HANDLER
   // ============================================================================
 
@@ -1945,6 +2002,7 @@ export default function Home() {
     redoHistoryRef,
     canvasSize: PAINT_CANVAS_SIZE,
     cursorMode,
+    brushRef,
     setCursorMode,
     handleBrushChange,
     onSave: savePaintState,

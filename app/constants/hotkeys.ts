@@ -16,6 +16,8 @@ export const HOTKEYS = {
   BRUSH_AIRBRUSH: "a",
   BRUSH_PAINTBRUSH: "b",
   BRUSH_FILL: "f",
+  BRUSH_SIZE_INCREASE: "=", // + key (= without shift)
+  BRUSH_SIZE_DECREASE: "-",
 
   // Camera orbit shortcuts
   ORBIT_LEFT: "ArrowLeft",

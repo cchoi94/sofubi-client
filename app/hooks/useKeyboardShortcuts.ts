@@ -34,6 +34,9 @@ export interface KeyboardShortcutsConfig {
   // Current cursor mode for hold-to-override
   cursorMode: CursorMode;
 
+  // Brush ref for size adjustments
+  brushRef: React.RefObject<BrushState>;
+
   // State setters
   setCursorMode: (mode: CursorMode) => void;
   handleBrushChange: (brush: Partial<BrushState>) => void;
@@ -68,6 +71,7 @@ export function useKeyboardShortcuts({
   redoHistoryRef,
   canvasSize,
   cursorMode,
+  brushRef,
   setCursorMode,
   handleBrushChange,
   onSave,
@@ -292,6 +296,16 @@ export function useKeyboardShortcuts({
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
       } else if (lowerKey === HOTKEYS.BRUSH_FILL.toLowerCase()) {
         handleBrushChange({ ...BRUSH_PRESETS[BrushType.Fill] });
+      } else if (key === HOTKEYS.BRUSH_SIZE_INCREASE || key === "+") {
+        // Increase brush size by 4px
+        const currentRadius = brushRef.current?.radius ?? 20;
+        const newRadius = Math.min(currentRadius + 4, 200); // Max 200px
+        handleBrushChange({ radius: newRadius });
+      } else if (key === HOTKEYS.BRUSH_SIZE_DECREASE) {
+        // Decrease brush size by 4px
+        const currentRadius = brushRef.current?.radius ?? 20;
+        const newRadius = Math.max(currentRadius - 4, 1); // Min 1px
+        handleBrushChange({ radius: newRadius });
       }
     };
 
