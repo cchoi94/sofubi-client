@@ -23,10 +23,10 @@ interface TopRightToolbarProps {
 }
 
 // ============================================================================
-// TOP RIGHT TOOLBAR COMPONENT
+// TOP TOOLBAR COMPONENT
 // ============================================================================
 
-export function TopRightToolbar({
+export function TopToolbar({
   animation,
   onAnimationChange,
   onClear,
@@ -36,7 +36,7 @@ export function TopRightToolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="fixed top-6 right-6 z-20">
+      <div className="fixed top-6 left-6 z-20">
         <div className="flex items-center gap-1 px-2 py-1.5 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-xl shadow-2xl">
           {/* Auto Spin Toggle */}
           <Tooltip>
@@ -92,4 +92,4 @@ export function TopRightToolbar({
   );
 }
 
-export default TopRightToolbar;
+export default TopToolbar;

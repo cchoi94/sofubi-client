@@ -70,7 +70,8 @@ import type {
 
 // Components
 import { BottomToolbar, useBrush } from "~/components/BottomToolbar";
-import { TopRightToolbar } from "~/components/TopRightToolbar";
+import { Compass, type CompassRef } from "~/components/Compass";
+import { TopToolbar } from "~/components/TopToolbar";
 import { ShareModal } from "~/components/ShareModal";
 import { LoadingDotsOverlay } from "~/components/LoadingDotsOverlay/LoadingDotsOverlay";
 import { ModelSelectorModal } from "~/components/ModelSelectorModal";
@@ -238,6 +239,9 @@ export default function Home() {
 
   // Ref for cursor mode to use in event handlers
   const cursorModeRef = useRef<CursorMode>(CursorMode.Paint);
+  
+  // Compass Ref
+  const compassRef = useRef<CompassRef>(null);
 
   // Track if model transformation has changed from default
   const [isTransformDirty, setIsTransformDirty] = useState<boolean>(false);
@@ -974,6 +978,12 @@ export default function Home() {
       // Spin model if enabled (uses React ref for state)
       if (animationRef.current.spin && modelObjRef.current) {
         modelObjRef.current.rotation.y += 0.01 * animationRef.current.spinSpeed;
+        setIsTransformDirty(true);
+      }
+      
+      // Update Compass rotation to match model
+      if (modelPivotRef.current && compassRef.current) {
+        compassRef.current.updateRotation(modelPivotRef.current.quaternion);
       }
 
       // Continuous airbrush spraying while holding mouse button
@@ -2065,6 +2075,55 @@ export default function Home() {
   });
 
   // ============================================================================
+  // COMPASS HANDLERS
+  // ============================================================================
+  // Compass Handlers
+  // Compass Handlers
+  const handleCompassRotate = useCallback((dx: number, dy: number) => {
+    if (!modelPivotRef.current || !cameraRef.current) return;
+
+    // Standard Trackball / Arcball Rotation Logic
+    // -----------------------------------------------------------------------
+    // The goal is to rotate the model around an axis that is perpendicular 
+    // to the drag direction in "Screen Space".
+    //
+    // Screen Drag Vector: D = (dx, dy)
+    // Rotation Axis in Screen Space: A_screen = (-dy, dx)  (Perpendicular to D)
+    //
+    // Map Screen Axes to World Vectors via Camera:
+    // Screen X+  ->  Camera Right
+    // Screen Y+  ->  Camera Up
+    //
+    // So World Rotation Axis:
+    // Axis = (CameraRight * -dy) + (CameraUp * dx)
+
+    const cameraRight = new THREE.Vector3();
+    const cameraUp = new THREE.Vector3();
+    cameraRef.current.matrix.extractBasis(cameraRight, cameraUp, new THREE.Vector3());
+
+    // Construct the rotation axis in world space
+    // Note: We might need to invert direction depending on "grab the world" vs "grab the object" feel.
+    // "Grab the object": Drag Right (+dx) -> Object rotates around Up (+Y). Surface moves Right.
+    // Formula above: Axis = (CameraUp * dx) + ...  (Correct)
+    const rotationAxis = new THREE.Vector3()
+      .addScaledVector(cameraRight, dy) // Drag Up (+dy) -> Rotate around Right (+X)
+      .addScaledVector(cameraUp, dx)    // Drag Right (+dx) -> Rotate around Up (+Y)
+      .normalize();
+
+    // Calculate rotation angle based on drag distance
+    const sensitivity = 0.005;
+    const angle = Math.sqrt(dx * dx + dy * dy) * sensitivity;
+
+    // Apply rotation
+    const rotationQuat = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
+
+    modelPivotRef.current.quaternion.premultiply(rotationQuat);
+    setIsTransformDirty(true);
+  }, []);
+
+  // Render section...
+
+  // ============================================================================
   // RENDER
   // ============================================================================
 
@@ -2092,17 +2151,22 @@ export default function Home() {
         <LoadingDotsOverlay isLoading={isLoading} />
       </div>
 
-      {/* Top Right Toolbar */}
+      {/* Top Toolbar */}
       <div
         className={`transition-opacity duration-300 ${hudVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       >
-        <TopRightToolbar
+        <TopToolbar
           animation={animation}
           onAnimationChange={(changes: Partial<AnimationState>) =>
             setAnimation((prev) => ({ ...prev, ...changes }))
           }
           onClear={handleClear}
           isLoading={isLoading}
+        />
+
+        <Compass
+          ref={compassRef}
+          onRotate={handleCompassRotate}
         />
       </div>
 
