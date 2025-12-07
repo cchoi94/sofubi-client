@@ -243,6 +243,10 @@ export default function Home() {
   // Compass Ref
   const compassRef = useRef<CompassRef>(null);
 
+  // Rotation State (Euler Angles for stability)
+  // { azimuth: rotation around Y (radians), elevation: rotation around X (radians) }
+  const rotationStateRef = useRef<{ azimuth: number; elevation: number }>({ azimuth: 0, elevation: 0 });
+
   // Track if model transformation has changed from default
   const [isTransformDirty, setIsTransformDirty] = useState<boolean>(false);
 
@@ -2079,45 +2083,34 @@ export default function Home() {
   // ============================================================================
   // Compass Handlers
   // Compass Handlers
+  // Compass Handlers
+  // Compass Handlers
   const handleCompassRotate = useCallback((dx: number, dy: number) => {
-    if (!modelPivotRef.current || !cameraRef.current) return;
+    if (!modelPivotRef.current) return;
 
-    // Standard Trackball / Arcball Rotation Logic
+    // TURNTABLE Rotation Logic (Stable Euler Angles)
     // -----------------------------------------------------------------------
-    // The goal is to rotate the model around an axis that is perpendicular 
-    // to the drag direction in "Screen Space".
-    //
-    // Screen Drag Vector: D = (dx, dy)
-    // Rotation Axis in Screen Space: A_screen = (-dy, dx)  (Perpendicular to D)
-    //
-    // Map Screen Axes to World Vectors via Camera:
-    // Screen X+  ->  Camera Right
-    // Screen Y+  ->  Camera Up
-    //
-    // So World Rotation Axis:
-    // Axis = (CameraRight * -dy) + (CameraUp * dx)
-
-    const cameraRight = new THREE.Vector3();
-    const cameraUp = new THREE.Vector3();
-    cameraRef.current.matrix.extractBasis(cameraRight, cameraUp, new THREE.Vector3());
-
-    // Construct the rotation axis in world space
-    // Note: We might need to invert direction depending on "grab the world" vs "grab the object" feel.
-    // "Grab the object": Drag Right (+dx) -> Object rotates around Up (+Y). Surface moves Right.
-    // Formula above: Axis = (CameraUp * dx) + ...  (Correct)
-    const rotationAxis = new THREE.Vector3()
-      .addScaledVector(cameraRight, dy) // Drag Up (+dy) -> Rotate around Right (+X)
-      .addScaledVector(cameraUp, dx)    // Drag Right (+dx) -> Rotate around Up (+Y)
-      .normalize();
-
-    // Calculate rotation angle based on drag distance
+    // We maintain absolute Azimuth (Y) and Elevation (X) angles to ensure
+    // zero Roll (Z) at all times. This prevents "tilting off center".
+    
     const sensitivity = 0.005;
-    const angle = Math.sqrt(dx * dx + dy * dy) * sensitivity;
 
-    // Apply rotation
-    const rotationQuat = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
+    // Update state
+    rotationStateRef.current.azimuth += dx * sensitivity;
+    rotationStateRef.current.elevation += dy * sensitivity;
 
-    modelPivotRef.current.quaternion.premultiply(rotationQuat);
+    // Create Quaternion from Euler Angles (YXZ order)
+    // Y (Spin) -> X (Tilt) -> Z (0)
+    // This order mimics a turntable: Spin the table, then tilt the head.
+    const q = new THREE.Quaternion();
+    q.setFromEuler(new THREE.Euler(
+      rotationStateRef.current.elevation, // X (Pitch/Tilt)
+      rotationStateRef.current.azimuth,   // Y (Yaw/Spin)
+      0,                                  // Z (Roll) - ALWAYS ZERO
+      'YXZ'
+    ));
+
+    modelPivotRef.current.quaternion.copy(q);
     setIsTransformDirty(true);
   }, []);
 
@@ -2194,6 +2187,9 @@ export default function Home() {
               // Reset position and rotation to identity/zero
               modelPivotRef.current.position.set(0, 0, 0);
               modelPivotRef.current.quaternion.identity();
+              
+              // Reset Euler State
+              rotationStateRef.current = { azimuth: 0, elevation: 0 };
 
               // Reset velocity trackers
               moveVelocityRef.current = { x: 0, y: 0 };
