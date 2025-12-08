@@ -91,35 +91,48 @@ export const Compass = forwardRef<CompassRef, CompassProps>(
       // Shared Geometry Config
       // TorusGeometry(radius, tube, radialSegments, tubularSegments)
       const torusRadius = 0.8;
-      const tubeRadius = 0.08; // Thickness
+      const tubeRadius = 0.04; // Thickness
       const radialSegments = 32; // Higher quality cross-section
       const tubularSegments = 64;
 
-      // X-Axis Ring (Blue) - Horizontal Orientation
+      // Red X-Axis Ring (YZ Plane)
       const geoX = new THREE.TorusGeometry(torusRadius, tubeRadius, radialSegments, tubularSegments);
       const matX = new THREE.MeshStandardMaterial({ 
-        color: 0x60a5fa, // Blue-400 (Lighter, glowing)
-        roughness: 0.1,  // Very glossy
-        metalness: 0.4,  // Semi-metallic
-        emissive: 0x1e40af, // Slight blue glow
+       color: 0x4ade80, // Green-400
+        roughness: 0.1, 
+        metalness: 0.4,
+        emissive: 0x15803d, // Green glow
         emissiveIntensity: 0.2
       });
       const meshX = new THREE.Mesh(geoX, matX);
-      meshX.rotation.x = Math.PI / 2; // Lie flat
+      meshX.rotation.y = Math.PI / 2; // Face X-axis
       pivotGroup.add(meshX);
 
-      // Y-Axis Ring (Green) - Vertical Orientation
+      // Green Y-Axis Ring (XZ Plane)
       const geoY = new THREE.TorusGeometry(torusRadius, tubeRadius, radialSegments, tubularSegments);
       const matY = new THREE.MeshStandardMaterial({ 
-        color: 0x4ade80, // Green-400 (Lighter, glowing)
+        color: 0xf87171, // Red-400
         roughness: 0.1, 
         metalness: 0.4,
-        emissive: 0x15803d, // Slight green glow
+        emissive: 0x991b1b, // Red glow
         emissiveIntensity: 0.2
       });
       const meshY = new THREE.Mesh(geoY, matY);
-      meshY.rotation.y = Math.PI / 2; // Stand vertical
+      meshY.rotation.x = Math.PI / 2; // Face Y-axis
       pivotGroup.add(meshY);
+
+      // Blue Z-Axis Ring (XY Plane)
+      const geoZ = new THREE.TorusGeometry(torusRadius, tubeRadius, radialSegments, tubularSegments);
+      const matZ = new THREE.MeshStandardMaterial({ 
+        color: 0x60a5fa, // Blue-400
+        roughness: 0.1, 
+        metalness: 0.4,
+        emissive: 0x1e40af, // Blue glow
+        emissiveIntensity: 0.2
+      });
+      const meshZ = new THREE.Mesh(geoZ, matZ);
+      // Default orientation lies on XY plane (Facing Z)
+      pivotGroup.add(meshZ);
 
       // Center Sphere (White/Silver)
       const geoSphere = new THREE.SphereGeometry(0.2, 32, 16);

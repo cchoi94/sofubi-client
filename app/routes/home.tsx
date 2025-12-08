@@ -311,14 +311,14 @@ export default function Home() {
       }, 8000);
     };
 
-    // Listen for mouse movement
-    window.addEventListener("mousemove", resetHudTimer);
+    // Listen for pointer movement (covers mouse, touch, pen)
+    window.addEventListener("pointermove", resetHudTimer);
 
     // Initial timer
     resetHudTimer();
 
     return () => {
-      window.removeEventListener("mousemove", resetHudTimer);
+      window.removeEventListener("pointermove", resetHudTimer);
       if (hudTimeoutRef.current) {
         clearTimeout(hudTimeoutRef.current);
       }
