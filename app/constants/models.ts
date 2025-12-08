@@ -14,15 +14,10 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     path: "/assets/godzilla.glb",
   },
   {
-    id: "astro_boy",
-    name: "Astro Boy",
-    path: "/assets/astro_boy2.glb",
-    disabled: true,
-  },
-  {
-    id: "mewtwo",
-    name: "Mewtwo",
-    path: "/assets/mewtwo.glb",
+    id: "kamen_rider_black_rx",
+    name: "Kamen Rider Black RX",
+    path: "/assets/kamen_rider_black_rx.glb",
+    // disabled: true,
   },
 ];
 

@@ -372,8 +372,9 @@ export default function Home() {
     const gui = isDev ? new GUI({ title: "🎨 Debug Settings" }) : null;
     if (gui) {
       gui.domElement.style.position = "absolute";
-      gui.domElement.style.top = "10px";
-      gui.domElement.style.left = "10px"; // Moved to left side since panel slides
+      gui.domElement.style.top = "auto";
+      gui.domElement.style.bottom = "80px"; // Bottom left (above toolbar)
+      gui.domElement.style.left = "10px";
 
       // Animation folder (at the top for easy access) - syncs with React state
       const animationFolder = gui.addFolder("Animation");
