@@ -37,6 +37,7 @@ import {
   buildUVIslands,
   findIslandFromFace,
   fillIslandOnCanvas,
+  fillIslandOnMaskCanvas,
 } from "~/three-utils/floodFill";
 import type { FloodFillResult, UVIsland } from "~/three-utils/floodFill";
 import { createHighlightManager } from "~/three-utils/sectionHighlight";
@@ -1086,10 +1087,6 @@ export default function Home() {
      * Uses conic spray pattern with random particle distribution.
      */
 
-    // Cache for brush color parsing (avoid re-parsing same color)
-    let cachedColorHex = "";
-    let cachedColorRgb = { r: 0, g: 0, b: 0 };
-
     // Update the pre-computed brush stamp (Native Canvas)
     const updateBrushStamp = (
       radius: number,
@@ -1476,6 +1473,7 @@ export default function Home() {
             if (islandData) {
               const island = findIslandFromFace(result.faceIndex, islandData);
               if (island) {
+                // Fill color
                 fillIslandOnCanvas(
                   island,
                   targetMesh.geometry,
@@ -1486,6 +1484,27 @@ export default function Home() {
                 const texture = paintTextureRef.current;
                 if (texture) {
                   texture.needsUpdate = true;
+                }
+
+                // Fill material mask for shader blending (metal over plastic)
+                const maskCtx = materialMaskCtxRef.current;
+                const maskTexture = materialMaskTextureRef.current;
+                if (maskCtx && maskTexture) {
+                  // Use the correct material value for the selected material (e.g., metal = 1, plastic = 0)
+                  const materialValue = getMaterialId(
+                    brushRef.current.paintMaterial
+                  );
+                  const gray = Math.floor(materialValue * 255);
+                  const materialColor = `rgb(${gray}, ${gray}, ${gray})`;
+                  // Use utility to fill mask
+                  fillIslandOnMaskCanvas(
+                    island,
+                    targetMesh.geometry,
+                    maskCtx,
+                    PAINT_CANVAS_SIZE,
+                    materialColor
+                  );
+                  maskTexture.needsUpdate = true;
                 }
               }
             }

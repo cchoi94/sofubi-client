@@ -291,11 +291,20 @@ export function useKeyboardShortcuts({
       const lowerKey = key.toLowerCase();
 
       if (lowerKey === HOTKEYS.BRUSH_AIRBRUSH.toLowerCase()) {
-        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Airbrush] });
+        handleBrushChange({
+          ...BRUSH_PRESETS[BrushType.Airbrush],
+          paintMaterial: brushRef.current.paintMaterial,
+        });
       } else if (lowerKey === HOTKEYS.BRUSH_PAINTBRUSH.toLowerCase()) {
-        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Paintbrush] });
+        handleBrushChange({
+          ...BRUSH_PRESETS[BrushType.Paintbrush],
+          paintMaterial: brushRef.current.paintMaterial,
+        });
       } else if (lowerKey === HOTKEYS.BRUSH_FILL.toLowerCase()) {
-        handleBrushChange({ ...BRUSH_PRESETS[BrushType.Fill] });
+        handleBrushChange({
+          ...BRUSH_PRESETS[BrushType.Fill],
+          paintMaterial: brushRef.current.paintMaterial,
+        });
       } else if (key === HOTKEYS.BRUSH_SIZE_INCREASE || key === "+") {
         // Increase brush size by 4px
         const currentRadius = brushRef.current?.radius ?? 20;

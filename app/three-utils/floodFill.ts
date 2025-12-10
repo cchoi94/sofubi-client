@@ -1,5 +1,65 @@
 import * as THREE from "three";
 
+/**
+ * Fill all triangles of an island on the material mask canvas.
+ * Used for shader masking with fill brush.
+ */
+export function fillIslandOnMaskCanvas(
+  island: UVIsland,
+  geometry: THREE.BufferGeometry,
+  ctx: CanvasRenderingContext2D,
+  canvasSize: number,
+  materialColor: string
+): void {
+  const uv = geometry.getAttribute("uv");
+  const index = geometry.getIndex();
+
+  if (!uv) {
+    console.warn("fillIslandOnMaskCanvas: No UV attribute found");
+    return;
+  }
+
+  const getTriangleVertices = (triIndex: number): number[] => {
+    if (index) {
+      return [
+        index.getX(triIndex * 3),
+        index.getX(triIndex * 3 + 1),
+        index.getX(triIndex * 3 + 2),
+      ];
+    }
+    return [triIndex * 3, triIndex * 3 + 1, triIndex * 3 + 2];
+  };
+
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1.0;
+  ctx.fillStyle = materialColor;
+
+  const wrapUV = (value: number): number => {
+    const wrapped = value % 1;
+    return wrapped < 0 ? wrapped + 1 : wrapped;
+  };
+
+  for (const triIndex of island.triangleIndices) {
+    const vertices = getTriangleVertices(triIndex);
+    const uvCoords = vertices.map((v) => {
+      const u = wrapUV(uv.getX(v));
+      const vCoord = wrapUV(uv.getY(v));
+      return {
+        x: u * canvasSize,
+        y: (1 - vCoord) * canvasSize,
+      };
+    });
+    ctx.beginPath();
+    ctx.moveTo(uvCoords[0].x, uvCoords[0].y);
+    ctx.lineTo(uvCoords[1].x, uvCoords[1].y);
+    ctx.lineTo(uvCoords[2].x, uvCoords[2].y);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================

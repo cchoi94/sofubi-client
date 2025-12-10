@@ -51,14 +51,18 @@ export function BrushTypePicker({
 
   // Close popover when HUD hides
   useEffect(() => {
-    if (!hudVisible) {
+    // Only close popover if HUD is hidden and popover is not open
+    if (!hudVisible && !open) {
       setOpen(false);
     }
-  }, [hudVisible]);
+  }, [hudVisible, open]);
 
   const handleBrushTypeChange = (type: BrushType) => {
-    onBrushChange({ ...BRUSH_PRESETS[type] });
-    setOpen(false);
+    // Only update brush type and related properties, keep current material
+    onBrushChange({
+      ...BRUSH_PRESETS[type],
+      paintMaterial,
+    });
   };
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -165,11 +169,10 @@ export function BrushTypePicker({
             ))}
           </div>
 
-          <Separator />
-
           {/* Brush Size Slider - hide for Fill brush */}
           {brush.type !== BrushType.Fill && (
             <div className="space-y-2 px-1 pb-1">
+              <Separator />
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Size</Label>
                 <span className="text-xs text-zinc-500">{brush.radius}px</span>
