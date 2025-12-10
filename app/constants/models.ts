@@ -19,11 +19,6 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     path: "/assets/godzilla_2.glb",
   },
   {
-    id: "godzilla3",
-    name: "Godzilla3",
-    path: "/assets/godzilla_3.glb",
-  },
-  {
     id: "kamen_rider_black_rx",
     name: "Kamen Rider Black RX",
     path: "/assets/kamen_rider_black_rx.glb",
