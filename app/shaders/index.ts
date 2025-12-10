@@ -49,20 +49,19 @@ export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
  * Using normalized values avoids gamma correction issues.
  */
 export const MATERIAL_ID_MAP: Record<string, number> = {
-  [ShaderId.PLASTIC]: 0.0,      // 0/255 - Base (unpainted)
-  [ShaderId.METAL]: 0.2,        // 51/255 - Die-cast metal
-  [ShaderId.GLASS]: 0.4,        // 102/255 - Glass
-  [ShaderId.CERAMIC]: 0.6,      // 153/255 - Ceramic
+  [ShaderId.PLASTIC]: 0.0, // 0/255 - Base (unpainted)
+  [ShaderId.METAL]: 0.2, // 51/255 - Die-cast metal
+  [ShaderId.GLASS]: 0.4, // 102/255 - Glass
+  [ShaderId.CERAMIC]: 0.6, // 153/255 - Ceramic
   [ShaderId.PEARLESCENT]: 0.75, // 191/255 - Pearlescent
-  [ShaderId.STANDARD]: 0.9,     // 229/255 - Standard PBR
+  [ShaderId.STANDARD]: 0.9, // 229/255 - Standard PBR
 } as const;
 
 /**
  * Reverse map: numeric ID to shader ID
  */
-export const MATERIAL_ID_REVERSE_MAP: Record<number, string> = Object.fromEntries(
-  Object.entries(MATERIAL_ID_MAP).map(([k, v]) => [v, k])
-);
+export const MATERIAL_ID_REVERSE_MAP: Record<number, string> =
+  Object.fromEntries(Object.entries(MATERIAL_ID_MAP).map(([k, v]) => [v, k]));
 
 /**
  * Get numeric material ID from shader ID
@@ -88,8 +87,8 @@ export function getShaderId(materialId: number): string | undefined {
 export const shaders: CustomShader[] = [
   // standardShader,
   // ceramicShader,
-  metalShader,
   plasticShader,
+  metalShader,
   // pearlescentArmorShader,
   // glassShader,
 ];

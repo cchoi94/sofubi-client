@@ -786,7 +786,6 @@ export default function Home() {
         // console.log(`Loading model: ${percent.toFixed(1)}%`);
       },
       onComplete: ({ model, paintableMeshes, materialPropsMap, scale }) => {
-        console.log("Model loaded:", selectedModel.name);
         // Store original material properties for shader system
         materialPropsMap.forEach((props, mesh) => {
           originalMaterialPropsRef.current.set(mesh, props);
@@ -992,7 +991,6 @@ export default function Home() {
           if (mesh.geometry) {
             const islands = buildUVIslands(mesh.geometry);
             uvIslandsRef.current.set(mesh, islands);
-            console.log(`Built ${islands.islands.length} UV islands for mesh`);
           }
         });
 
@@ -1013,10 +1011,6 @@ export default function Home() {
         // Update controls target to model center
         controls.target.set(0, 0, 0);
         controls.update();
-
-        console.log(
-          `Loaded model with ${paintableMeshes.length} paintable meshes`
-        );
       },
       onError: (error) => {
         console.error("Error loading model:", error);
@@ -1267,13 +1261,6 @@ export default function Home() {
         const gray = Math.floor(materialValue * 255);
         const materialColor = `rgb(${gray}, ${gray}, ${gray})`;
 
-        // Debug: Log when painting with non-plastic material
-        if (materialValue > 0) {
-          console.log(
-            `[Paint] Material: ${brush.paintMaterial}, value: ${materialValue}, gray: ${gray}`
-          );
-        }
-
         maskCtx.globalCompositeOperation = "source-over";
         maskCtx.globalAlpha = brush.opacity * MAX_COVERAGE * typeOpacityMult;
 
@@ -1389,10 +1376,6 @@ export default function Home() {
 
         // Move mode - always drag model regardless of hitting model
         if (currentMode === CursorMode.Move) {
-          console.log(
-            "Move mode - isDragging start, pivot:",
-            !!modelPivotRef.current
-          );
           controls.enabled = false;
           isDraggingModelRef.current = true;
           setIsGrabbing(true);
@@ -1475,33 +1458,13 @@ export default function Home() {
 
           // Handle Fill brush - fill the entire UV island
           if (brushRef.current.type === BrushType.Fill && ctx) {
-            console.log(
-              "Fill click - ctx:",
-              !!ctx,
-              "result.mesh:",
-              result.mesh.name || result.mesh.uuid
-            );
-
             // Try to find island data - check both the hit mesh and all stored meshes
             let islandData = uvIslandsRef.current.get(result.mesh);
             let targetMesh = result.mesh;
 
-            console.log(
-              "Direct lookup:",
-              !!islandData,
-              "uvIslandsRef size:",
-              uvIslandsRef.current.size
-            );
-
             // If not found, try to find by geometry match
             if (!islandData) {
               for (const [mesh, data] of uvIslandsRef.current.entries()) {
-                console.log(
-                  "Checking mesh:",
-                  mesh.name || mesh.uuid,
-                  "geometry match:",
-                  mesh.geometry === result.mesh.geometry
-                );
                 if (mesh.geometry === result.mesh.geometry) {
                   islandData = data;
                   targetMesh = mesh;
@@ -1510,25 +1473,9 @@ export default function Home() {
               }
             }
 
-            console.log(
-              "Final islandData:",
-              !!islandData,
-              "faceIndex:",
-              result.faceIndex
-            );
-
             if (islandData) {
               const island = findIslandFromFace(result.faceIndex, islandData);
-              console.log(
-                "Found island:",
-                !!island,
-                island ? `${island.triangleIndices.length} triangles` : "none"
-              );
               if (island) {
-                console.log(
-                  "Calling fillIslandOnCanvas with color:",
-                  brushRef.current.color
-                );
                 fillIslandOnCanvas(
                   island,
                   targetMesh.geometry,
@@ -1539,7 +1486,6 @@ export default function Home() {
                 const texture = paintTextureRef.current;
                 if (texture) {
                   texture.needsUpdate = true;
-                  console.log("Texture marked for update");
                 }
               }
             }

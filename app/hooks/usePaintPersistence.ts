@@ -220,7 +220,6 @@ function getStorageRoot(storageKey: string): PaintStorageRoot {
 
     // Handle legacy single-model format (migrate to new format)
     if (parsed.canvasData !== undefined) {
-      console.log("Migrating legacy paint state to new format...");
       // This is the old format - migrate it
       const legacyState = parsed as PersistentPaintState;
       return {

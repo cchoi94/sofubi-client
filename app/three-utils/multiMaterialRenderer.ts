@@ -151,8 +151,6 @@ export class MultiMaterialRenderer {
       mesh: layerMesh,
       material,
     });
-
-    console.log(`[MultiMaterialRenderer] Added layer: ${shader.name}`);
   }
 
   /**
@@ -176,8 +174,6 @@ export class MultiMaterialRenderer {
 
     // Remove from map
     this.materialLayers.delete(shaderId);
-
-    console.log(`[MultiMaterialRenderer] Removed layer: ${shaderId}`);
   }
 
   /**
