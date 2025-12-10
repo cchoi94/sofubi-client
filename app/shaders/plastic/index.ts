@@ -147,7 +147,7 @@ function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
       // Original GLB textures
       normalMap: { value: config.normalMap || null },
       useNormalMap: { value: config.normalMap ? 1.0 : 0.0 },
-      normalScale: { value: 1.0 },
+      normalScale: { value: 4.0 },
       
       roughnessMap: { value: config.roughnessMap || null },
       useRoughnessMap: { value: config.roughnessMap ? 1.0 : 0.0 },
@@ -162,7 +162,7 @@ function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
   });
   
   // Store initial light intensity for updates
-  material.userData.lightIntensity = 1.2;
+  material.userData.lightIntensity = 1.8;
   material.userData.ambientIntensity = 0.15;
   
   return material;
