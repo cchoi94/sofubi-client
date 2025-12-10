@@ -53,6 +53,10 @@ uniform float useRoughnessMap;       // 0 or 1 toggle
 uniform sampler2D aoMap;             // Original GLB ambient occlusion map
 uniform float useAoMap;              // 0 or 1 toggle
 
+// Material mask for multi-material system
+uniform sampler2D materialMask;      // R channel: material ID (0-255)
+uniform float useMaterialMask;       // Toggle for material masking
+
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
@@ -146,6 +150,39 @@ vec3 computeClearcoat(vec3 L, vec3 V, vec3 N, float coatStrength, float coatGlos
   vec3 clearcoatFresnel = fresnelSchlick(HdotV, clearcoatF0);
   
   return clearcoatFresnel * spec * coatStrength;
+}
+
+// Compute metal BRDF (for multi-material painting)
+// Metal uses the albedo as F0 (colored reflections) and has no diffuse
+vec3 computeMetal(vec3 L, vec3 V, vec3 N, vec3 metalColor, float metalRoughness) {
+  vec3 H = normalize(L + V);
+  float NdotL = max(dot(N, L), 0.0);
+  float NdotV = max(dot(N, V), 0.0);
+  float NdotH = max(dot(N, H), 0.0);
+  float HdotV = max(dot(H, V), 0.0);
+
+  // Metal F0 = base color (colored reflections)
+  vec3 metalF0 = metalColor;
+
+  // Fresnel-Schlick
+  vec3 F = fresnelSchlick(HdotV, metalF0);
+
+  // GGX Distribution (simplified)
+  float a = metalRoughness * metalRoughness;
+  float a2 = a * a;
+  float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+  float D = a2 / (PI * denom * denom);
+
+  // Geometric attenuation (simplified Smith)
+  float k = metalRoughness * 0.5;
+  float G1L = NdotL / (NdotL * (1.0 - k) + k);
+  float G1V = NdotV / (NdotV * (1.0 - k) + k);
+  float G = G1L * G1V;
+
+  // BRDF
+  vec3 specular = (D * F * G) / max(4.0 * NdotL * NdotV, 0.001);
+
+  return specular * NdotL;
 }
 
 // ----------------------------------------------------------------------------
@@ -247,23 +284,51 @@ void main() {
   vec3 clearcoatSpec = computeClearcoat(L, V, N, clearcoat, clearcoatGloss, fresnel);
   
   // -------------------------------------------------------------------------
-  // 11. COMBINE ALL TERMS
+  // 11. PLASTIC COLOR (combine all plastic terms)
   // -------------------------------------------------------------------------
-  // Final color = ambient + diffuse + SSS + base specular + clearcoat + edge sheen
-  vec3 color = ambient + diffuse + sssContrib + specular * uLightColor + clearcoatSpec * uLightColor;
-  
+  // Final plastic color = ambient + diffuse + SSS + base specular + clearcoat + edge sheen
+  vec3 plasticColor = ambient + diffuse + sssContrib + specular * uLightColor + clearcoatSpec * uLightColor;
+
   // Add subtle Fresnel edge tint (helps define silhouette)
-  color += fresnel * fresnelEdge * uLightColor * 0.1;
-  
+  plasticColor += fresnel * fresnelEdge * uLightColor * 0.1;
+
   // -------------------------------------------------------------------------
-  // 12. TONE MAPPING / GAMMA CORRECTION
+  // 12. METAL COLOR (for painted metal areas)
+  // -------------------------------------------------------------------------
+  // Metal BRDF: GGX specular with colored reflections, no diffuse
+  float metalRoughness = 0.35;  // Die-cast metal roughness
+  vec3 metalSpec = computeMetal(L, V, N, albedo, metalRoughness);
+  vec3 metalAmbient = uAmbientColor * albedo * ao * 0.3;  // Metal has less ambient
+  vec3 metalColor = metalAmbient + metalSpec * uLightColor * 1.5;  // Boost metal specular
+
+  // -------------------------------------------------------------------------
+  // 13. BLEND MATERIALS BASED ON MASK
+  // -------------------------------------------------------------------------
+  vec3 color = plasticColor;
+
+  if (useMaterialMask > 0.5) {
+    // Sample material mask (R channel: 0.0-1.0 normalized values)
+    float maskValue = texture2D(materialMask, vUV).r;
+
+    // Material blending based on normalized values
+    // Metal = 0.2 (tolerance ±0.1)
+    if (maskValue > 0.1 && maskValue < 0.3) {
+      color = metalColor;  // Full replacement
+    }
+    // Add more materials:
+    // Glass = 0.4: else if (maskValue > 0.3 && maskValue < 0.5) { color = glassColor; }
+    // Ceramic = 0.6: else if (maskValue > 0.5 && maskValue < 0.7) { color = ceramicColor; }
+  }
+
+  // -------------------------------------------------------------------------
+  // 14. TONE MAPPING / GAMMA CORRECTION
   // -------------------------------------------------------------------------
   // Simple gamma correction for sRGB display
   // (Assumes linear lighting calculations above)
   color = pow(color, vec3(1.0 / 2.2));
-  
+
   // -------------------------------------------------------------------------
-  // 13. OUTPUT
+  // 15. OUTPUT
   // -------------------------------------------------------------------------
   gl_FragColor = vec4(color, 1.0);
 }

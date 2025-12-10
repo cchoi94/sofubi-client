@@ -29,6 +29,7 @@ import {
   createResizeHandler,
   disposeThreeScene,
   DEFAULT_CAMERA_CONFIG,
+  MultiMaterialRenderer,
 } from "~/three-utils";
 
 // Fill brush utilities
@@ -50,6 +51,7 @@ import {
   DEFAULT_SHADER_ID,
   type ShaderConfig,
   ShaderId,
+  getMaterialId,
 } from "~/shaders";
 
 // Constants & Types
@@ -117,6 +119,14 @@ export default function Home() {
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const brushCursorRef = useRef<THREE.Mesh | null>(null);
   const brushCursorOutlineRef = useRef<THREE.Mesh | null>(null);
+
+  // Material mask system refs (tracks which material is painted at each UV)
+  const materialMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const materialMaskCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const materialMaskTextureRef = useRef<THREE.CanvasTexture | null>(null);
+
+  // Multi-material renderer for layered rendering system
+  const multiMaterialRendererRef = useRef<MultiMaterialRenderer | null>(null);
 
   // Brush Stamp Optimization (Native Canvas)
   const brushStampCanvasRef = useRef<HTMLCanvasElement[] | null>(null);
@@ -239,13 +249,16 @@ export default function Home() {
 
   // Ref for cursor mode to use in event handlers
   const cursorModeRef = useRef<CursorMode>(CursorMode.Paint);
-  
+
   // Compass Ref
   const compassRef = useRef<CompassRef>(null);
 
   // Rotation State (Euler Angles for stability)
   // { azimuth: rotation around Y (radians), elevation: rotation around X (radians) }
-  const rotationStateRef = useRef<{ azimuth: number; elevation: number }>({ azimuth: 0, elevation: 0 });
+  const rotationStateRef = useRef<{ azimuth: number; elevation: number }>({
+    azimuth: 0,
+    elevation: 0,
+  });
 
   // Track if model transformation has changed from default
   const [isTransformDirty, setIsTransformDirty] = useState<boolean>(false);
@@ -464,6 +477,7 @@ export default function Home() {
       const firstMeshProps = originalMaterialPropsRef.current.get(meshes[0]);
       const config: ShaderConfig = {
         paintTexture,
+        materialMask: materialMaskTextureRef.current || null,
         normalMap: firstMeshProps?.normalMap || null,
         roughnessMap: firstMeshProps?.roughnessMap || null,
         metalnessMap: firstMeshProps?.metalnessMap || null,
@@ -491,6 +505,7 @@ export default function Home() {
         const meshProps = originalMaterialPropsRef.current.get(mesh);
         const meshConfig: ShaderConfig = {
           paintTexture,
+          materialMask: materialMaskTextureRef.current || null,
           normalMap: meshProps?.normalMap || null,
           roughnessMap: meshProps?.roughnessMap || null,
           metalnessMap: meshProps?.metalnessMap || null,
@@ -726,6 +741,35 @@ export default function Home() {
     paintTextureRef.current = paintTexture;
 
     // -------------------------------------------------------------------------
+    // Create Material Mask Canvas and Texture
+    // -------------------------------------------------------------------------
+    // The mask stores which material is painted at each UV coordinate
+    // R channel: 0 = plastic (base), 255 = metal
+    // This allows the shader to blend between materials efficiently
+    const materialMaskCanvas = document.createElement("canvas");
+    materialMaskCanvas.width = PAINT_CANVAS_SIZE;
+    materialMaskCanvas.height = PAINT_CANVAS_SIZE;
+    materialMaskCanvasRef.current = materialMaskCanvas;
+
+    const materialMaskCtx = materialMaskCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    if (materialMaskCtx) {
+      // Fill with black (0 = plastic base, no metal)
+      materialMaskCtx.fillStyle = "rgb(0, 0, 0)";
+      materialMaskCtx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+      materialMaskCtxRef.current = materialMaskCtx;
+    }
+
+    // Create texture from material mask canvas
+    const materialMaskTexture = new THREE.CanvasTexture(materialMaskCanvas);
+    materialMaskTexture.colorSpace = THREE.LinearSRGBColorSpace; // Linear for mask data
+    materialMaskTexture.wrapS = THREE.RepeatWrapping;
+    materialMaskTexture.wrapT = THREE.RepeatWrapping;
+    materialMaskTexture.needsUpdate = true;
+    materialMaskTextureRef.current = materialMaskTexture;
+
+    // -------------------------------------------------------------------------
     // Load 3D Model
     // -------------------------------------------------------------------------
     // Don't load model if none is selected (waiting for user to pick)
@@ -758,6 +802,7 @@ export default function Home() {
             const meshProps = originalMaterialPropsRef.current.get(mesh);
             const config: ShaderConfig = {
               paintTexture,
+              materialMask: materialMaskTexture || null,
               normalMap: meshProps?.normalMap || null,
               roughnessMap: meshProps?.roughnessMap || null,
               metalnessMap: meshProps?.metalnessMap || null,
@@ -779,6 +824,7 @@ export default function Home() {
             );
             shaderConfigRef.current = {
               paintTexture,
+              materialMask: materialMaskTexture || null,
               normalMap: firstMeshProps?.normalMap || null,
               roughnessMap: firstMeshProps?.roughnessMap || null,
               metalnessMap: firstMeshProps?.metalnessMap || null,
@@ -787,6 +833,16 @@ export default function Home() {
               bumpMap: firstMeshProps?.bumpMap || null,
               envMap: null,
             };
+
+            // Initialize multi-material renderer for layered rendering
+            if (sceneRef.current && materialMaskTexture) {
+              multiMaterialRendererRef.current = new MultiMaterialRenderer({
+                baseMesh: paintableMeshes[0],
+                shaderConfig: shaderConfigRef.current,
+                scene: sceneRef.current,
+              });
+              multiMaterialRendererRef.current.updateMaterialLayers();
+            }
           }
 
           // Add default shader GUI params
@@ -985,7 +1041,7 @@ export default function Home() {
         modelObjRef.current.rotation.y += 0.01 * animationRef.current.spinSpeed;
         setIsTransformDirty(true);
       }
-      
+
       // Update Compass rotation to match model
       if (modelPivotRef.current && compassRef.current) {
         compassRef.current.updateRotation(modelPivotRef.current.quaternion);
@@ -1065,7 +1121,7 @@ export default function Home() {
       // Airbrush constants
       const isAirbrush = type === BrushType.Airbrush;
       // Soft edge: Low sharpness for smooth, gradual falloff
-      const GAUSSIAN_SHARPNESS = 3.0;  // Lower = softer edge
+      const GAUSSIAN_SHARPNESS = 3.0; // Lower = softer edge
       const STAMP_DENSITY = 1.0;
       const radiusSq = radius * radius;
 
@@ -1151,6 +1207,8 @@ export default function Home() {
     const paintAtUV = (uv: THREE.Vector2) => {
       const ctx = paintCtxRef.current;
       const texture = paintTextureRef.current;
+      const maskCtx = materialMaskCtxRef.current;
+      const maskTexture = materialMaskTextureRef.current;
       if (!ctx || !texture) return;
 
       // Wrap UV coordinates to 0-1 range using modulo
@@ -1199,6 +1257,51 @@ export default function Home() {
 
       // Mark texture for update
       texture.needsUpdate = true;
+
+      // -----------------------------------------------------------------------
+      // Paint material mask (encode material ID as color)
+      // -----------------------------------------------------------------------
+      if (maskCtx && maskTexture) {
+        // Get normalized material value (0.0-1.0) and convert to RGB gray
+        const materialValue = getMaterialId(brush.paintMaterial);
+        const gray = Math.floor(materialValue * 255);
+        const materialColor = `rgb(${gray}, ${gray}, ${gray})`;
+
+        // Debug: Log when painting with non-plastic material
+        if (materialValue > 0) {
+          console.log(
+            `[Paint] Material: ${brush.paintMaterial}, value: ${materialValue}, gray: ${gray}`
+          );
+        }
+
+        maskCtx.globalCompositeOperation = "source-over";
+        maskCtx.globalAlpha = brush.opacity * MAX_COVERAGE * typeOpacityMult;
+
+        // Create a temporary canvas with the stamp shape but in material color
+        const maskStampCanvas = document.createElement("canvas");
+        maskStampCanvas.width = stampCanvas.width;
+        maskStampCanvas.height = stampCanvas.height;
+        const maskStampCtx = maskStampCanvas.getContext("2d");
+        if (maskStampCtx) {
+          // Fill with material color
+          maskStampCtx.fillStyle = materialColor;
+          maskStampCtx.fillRect(
+            0,
+            0,
+            maskStampCanvas.width,
+            maskStampCanvas.height
+          );
+          // Use stamp alpha as mask
+          maskStampCtx.globalCompositeOperation = "destination-in";
+          maskStampCtx.drawImage(stampCanvas, 0, 0);
+        }
+
+        // Draw to mask canvas
+        maskCtx.drawImage(maskStampCanvas, drawX, drawY);
+        maskCtx.globalAlpha = 1.0;
+
+        maskTexture.needsUpdate = true;
+      }
     };
 
     /**
@@ -1642,12 +1745,12 @@ export default function Home() {
               const r = parseInt(hex.substring(0, 2), 16);
               const g = parseInt(hex.substring(2, 4), 16);
               const b = parseInt(hex.substring(4, 6), 16);
-              
+
               // Calculate Chroma (saturation proxy): max - min
               const max = Math.max(r, g, b);
               const min = Math.min(r, g, b);
               const chroma = max - min;
-              
+
               let displayColor = brushRef.current.color;
 
               // If chroma is low (< 10), it's a shade of gray/black/white
@@ -1759,11 +1862,17 @@ export default function Home() {
     const handlePointerUp = () => {
       const wasDragging = isDraggingModelRef.current;
       const wasRotating = isRotatingModelRef.current;
+      const wasPainting = isPaintingRef.current;
 
       isPaintingRef.current = false;
       isDraggingModelRef.current = false;
       isRotatingModelRef.current = false;
       setIsGrabbing(false);
+
+      // Update material layers after painting
+      if (wasPainting && multiMaterialRendererRef.current) {
+        multiMaterialRendererRef.current.updateMaterialLayers();
+      }
 
       // Apply momentum with GSAP ease-out for move
       if (wasDragging && modelPivotRef.current) {
@@ -1951,6 +2060,12 @@ export default function Home() {
       }
       uvIslandsRef.current.clear();
 
+      // Dispose multi-material renderer
+      if (multiMaterialRendererRef.current) {
+        multiMaterialRendererRef.current.dispose();
+        multiMaterialRendererRef.current = null;
+      }
+
       // Dispose Three.js scene, renderer, and controls
       disposeThreeScene(renderer, scene, controls);
     };
@@ -1990,6 +2105,8 @@ export default function Home() {
     const ctx = paintCtxRef.current;
     const texture = paintTextureRef.current;
     const thicknessMap = thicknessMapRef.current;
+    const maskCtx = materialMaskCtxRef.current;
+    const maskTexture = materialMaskTextureRef.current;
     if (!ctx || !texture) return;
 
     // Fill paint canvas with shader-specific base color
@@ -2000,6 +2117,13 @@ export default function Home() {
     // Reset thickness map
     if (thicknessMap) {
       thicknessMap.fill(0);
+    }
+
+    // Reset material mask (remove all shader layers)
+    if (maskCtx && maskTexture) {
+      maskCtx.fillStyle = "rgb(0, 0, 0)"; // Reset to plastic base (0 = plastic)
+      maskCtx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+      maskTexture.needsUpdate = true;
     }
 
     // Mark texture for update
@@ -2094,7 +2218,7 @@ export default function Home() {
     // -----------------------------------------------------------------------
     // We maintain absolute Azimuth (Y) and Elevation (X) angles to ensure
     // zero Roll (Z) at all times. This prevents "tilting off center".
-    
+
     const sensitivity = 0.005;
 
     // Update state
@@ -2105,12 +2229,14 @@ export default function Home() {
     // Y (Spin) -> X (Tilt) -> Z (0)
     // This order mimics a turntable: Spin the table, then tilt the head.
     const q = new THREE.Quaternion();
-    q.setFromEuler(new THREE.Euler(
-      rotationStateRef.current.elevation, // X (Pitch/Tilt)
-      rotationStateRef.current.azimuth,   // Y (Yaw/Spin)
-      0,                                  // Z (Roll) - ALWAYS ZERO
-      'YXZ'
-    ));
+    q.setFromEuler(
+      new THREE.Euler(
+        rotationStateRef.current.elevation, // X (Pitch/Tilt)
+        rotationStateRef.current.azimuth, // Y (Yaw/Spin)
+        0, // Z (Roll) - ALWAYS ZERO
+        "YXZ"
+      )
+    );
 
     modelPivotRef.current.quaternion.copy(q);
     setIsTransformDirty(true);
@@ -2159,10 +2285,7 @@ export default function Home() {
           isLoading={isLoading}
         />
 
-        <Compass
-          ref={compassRef}
-          onRotate={handleCompassRotate}
-        />
+        <Compass ref={compassRef} onRotate={handleCompassRotate} />
       </div>
 
       {/* Bottom Toolbar */}
@@ -2172,8 +2295,10 @@ export default function Home() {
         <BottomToolbar
           brush={brush}
           onBrushChange={handleBrushChange}
-          currentShader={currentShaderIdRef.current}
-          onShaderChange={applyShaderRef.current || (() => {})}
+          paintMaterial={brush.paintMaterial}
+          onPaintMaterialChange={(materialId) =>
+            handleBrushChange({ paintMaterial: materialId })
+          }
           cursorMode={cursorMode}
           onCursorModeChange={setCursorMode}
           colorHistory={colorHistory}
@@ -2189,7 +2314,7 @@ export default function Home() {
               // Reset position and rotation to identity/zero
               modelPivotRef.current.position.set(0, 0, 0);
               modelPivotRef.current.quaternion.identity();
-              
+
               // Reset Euler State
               rotationStateRef.current = { azimuth: 0, elevation: 0 };
 

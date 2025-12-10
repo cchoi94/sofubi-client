@@ -154,8 +154,12 @@ function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
       
       aoMap: { value: config.aoMap || null },
       useAoMap: { value: config.aoMap ? 1.0 : 0.0 },
+
+      // Material mask for multi-material blending
+      materialMask: { value: config.materialMask || null },
+      useMaterialMask: { value: config.materialMask ? 1.0 : 0.0 },
     },
-    
+
     // Enable transparency if needed for paint texture
     transparent: false,
     side: THREE.FrontSide,

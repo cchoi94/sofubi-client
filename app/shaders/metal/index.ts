@@ -2,29 +2,35 @@
  * Metal Shader
  *
  * Die-cast toy metal look - matte metallic like zinc/zamak alloy.
- * Uses MeshPhysicalMaterial for realistic metallic appearance with envMap.
- * Based on: https://threejs.org/manual/#en/materials
- * - metalness: 1.0 (fully metallic)
- * - roughness: 0.3-0.4 (slightly rough, not mirror)
- * - envMapIntensity for soft environment reflections
+ * Uses custom ShaderMaterial for precise control and multi-material masking.
+ * - Realistic GGX BRDF for metal specular
+ * - Soft highlights (not mirror-smooth)
+ * - Multi-light setup for die-cast look
+ * - Material ID masking support
  */
 
 import * as THREE from "three";
 import type { CustomShader, ShaderConfig, ShaderGuiParam } from "../types";
+import vertexShader from "./vertex.glsl?raw";
+import fragmentShader from "./fragment.glsl?raw";
 
 // ============================================================================
 // GUI PARAMETERS
 // ============================================================================
 
 const guiParams: ShaderGuiParam[] = [
-  { name: "color", type: "color", default: "#ffffff" }, // Bright metal silver
+  {
+    name: "metalColor",
+    type: "color",
+    default: "#d4d4d8" // Zinc-like silver
+  },
   {
     name: "metalness",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 1.0, // Fully metallic
+    default: 1.0,
   },
   {
     name: "roughness",
@@ -32,10 +38,26 @@ const guiParams: ShaderGuiParam[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.35, // Die-cast is slightly rough, not mirror-smooth
+    default: 0.35,
   },
   {
-    name: "envMapIntensity",
+    name: "reflectivity",
+    type: "number",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.5,
+  },
+  {
+    name: "normalScale",
+    type: "number",
+    min: 0,
+    max: 10,
+    step: 0.1,
+    default: 1.0,
+  },
+  {
+    name: "lightIntensity",
     type: "number",
     min: 0,
     max: 3,
@@ -43,87 +65,125 @@ const guiParams: ShaderGuiParam[] = [
     default: 1.0,
   },
   {
-    name: "clearcoat",
+    name: "specularIntensity",
     type: "number",
     min: 0,
-    max: 1,
+    max: 3,
     step: 0.01,
-    default: 0.0, // No clearcoat for raw die-cast
+    default: 1.5,
   },
   {
-    name: "clearcoatRoughness",
+    name: "ambientIntensity",
     type: "number",
     min: 0,
     max: 1,
     step: 0.01,
-    default: 0.0,
+    default: 0.3,
+  },
+  {
+    name: "fresnelStrength",
+    type: "number",
+    min: 0,
+    max: 2,
+    step: 0.01,
+    default: 1.0,
   },
 ];
 
 // ============================================================================
-// SHADER IMPLEMENTATION
+// MATERIAL CREATION
 // ============================================================================
 
-/**
- * Creates a die-cast metal material using MeshPhysicalMaterial
- */
-function createMaterial(config: ShaderConfig): THREE.MeshPhysicalMaterial {
-  const material = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color("#ffffff"), // Bright metal silver
-    metalness: 1.0,
-    roughness: 0.35,
-    envMapIntensity: 1.0,
-    clearcoat: 0.0,
-    clearcoatRoughness: 0.0,
-    side: THREE.DoubleSide,
-    // Use paint texture as the base map
-    map: config.paintTexture,
-    // Use original maps if available
-    normalMap: config.normalMap || null,
-    roughnessMap: config.roughnessMap || null,
-    metalnessMap: config.metalnessMap || null,
-    aoMap: config.aoMap || null,
-  });
+function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
+  const material = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
 
-  // Set normal scale if normal map exists
-  if (config.normalMap) {
-    material.normalScale = new THREE.Vector2(1, 1);
-  }
+    uniforms: {
+      // Paint texture
+      paintTexture: { value: config.paintTexture || null },
+
+      // Original GLB textures
+      normalMap: { value: config.normalMap || null },
+      useNormalMap: { value: config.normalMap ? 1.0 : 0.0 },
+      normalScale: { value: 1.0 },
+
+      roughnessMap: { value: config.roughnessMap || null },
+      useRoughnessMap: { value: config.roughnessMap ? 1.0 : 0.0 },
+
+      metalnessMap: { value: config.metalnessMap || null },
+      useMetalnessMap: { value: config.metalnessMap ? 1.0 : 0.0 },
+
+      aoMap: { value: config.aoMap || null },
+      useAoMap: { value: config.aoMap ? 1.0 : 0.0 },
+
+      // Material ID mask for multi-material painting
+      materialMask: { value: config.materialMask || null },
+      useMaterialMask: { value: config.materialMask ? 1.0 : 0.0 },
+      materialId: { value: 1.0 }, // Metal shader is material ID 1
+
+      // Material properties
+      metalColor: { value: new THREE.Color("#d4d4d8") },
+      metalness: { value: 1.0 },
+      roughness: { value: 0.35 },
+      reflectivity: { value: 0.5 },
+      anisotropy: { value: 0.0 },
+
+      // Lighting
+      lightColor: { value: new THREE.Color(1, 1, 1) },
+      lightIntensity: { value: 1.0 },
+      specularIntensity: { value: 1.5 },
+      ambientIntensity: { value: 0.3 },
+      fresnelStrength: { value: 1.0 },
+    },
+
+    side: THREE.FrontSide,
+    transparent: false,
+  });
 
   return material;
 }
 
-/**
- * Updates material properties when GUI params change
- */
+// ============================================================================
+// UNIFORM UPDATES
+// ============================================================================
+
 function updateUniforms(
   material: THREE.Material,
   params: Record<string, any>
 ): void {
-  const physicalMat = material as THREE.MeshPhysicalMaterial;
+  const shaderMat = material as THREE.ShaderMaterial;
+  const uniforms = shaderMat.uniforms;
 
   for (const [key, value] of Object.entries(params)) {
-    if (key === "color" && typeof value === "string") {
-      physicalMat.color.set(value);
+    if (key === "metalColor" && typeof value === "string") {
+      uniforms.metalColor.value.set(value);
     } else if (key === "metalness") {
-      physicalMat.metalness = value;
+      uniforms.metalness.value = value;
     } else if (key === "roughness") {
-      physicalMat.roughness = value;
-    } else if (key === "envMapIntensity") {
-      physicalMat.envMapIntensity = value;
-    } else if (key === "clearcoat") {
-      physicalMat.clearcoat = value;
-    } else if (key === "clearcoatRoughness") {
-      physicalMat.clearcoatRoughness = value;
+      uniforms.roughness.value = value;
+    } else if (key === "reflectivity") {
+      uniforms.reflectivity.value = value;
+    } else if (key === "normalScale") {
+      uniforms.normalScale.value = value;
+    } else if (key === "lightIntensity") {
+      uniforms.lightIntensity.value = value;
+    } else if (key === "specularIntensity") {
+      uniforms.specularIntensity.value = value;
+    } else if (key === "ambientIntensity") {
+      uniforms.ambientIntensity.value = value;
+    } else if (key === "fresnelStrength") {
+      uniforms.fresnelStrength.value = value;
     }
   }
 
-  physicalMat.needsUpdate = true;
+  shaderMat.needsUpdate = true;
 }
 
-/**
- * Cleanup function
- */
+// ============================================================================
+// CLEANUP
+// ============================================================================
+
 function dispose(material: THREE.Material): void {
   material.dispose();
 }
@@ -135,7 +195,7 @@ function dispose(material: THREE.Material): void {
 export const metalShader: CustomShader = {
   name: "Die-Cast Metal",
   id: "metal",
-  description: "Matte metallic zinc/zamak die-cast toy look",
+  description: "Matte metallic zinc/zamak die-cast toy look with material masking",
   createMaterial,
   guiParams,
   updateUniforms,

@@ -15,6 +15,9 @@ export interface ShaderConfig {
   /** The paint canvas texture (user's painted artwork) */
   paintTexture: THREE.CanvasTexture;
 
+  /** Material mask texture (tracks which material is painted where) */
+  materialMask?: THREE.CanvasTexture | null;
+
   /** Original normal map from the model (if available) */
   normalMap?: THREE.Texture | null;
 

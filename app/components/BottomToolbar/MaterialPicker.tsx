@@ -19,8 +19,8 @@ import { shaders } from "~/shaders";
 // ============================================================================
 
 export interface MaterialPickerProps {
-  currentShader: string;
-  onShaderChange: (shaderId: string) => void;
+  currentMaterial: string;  // Material ID to paint with
+  onMaterialChange: (materialId: string) => void;
   hudVisible?: boolean;
 }
 
@@ -29,8 +29,8 @@ export interface MaterialPickerProps {
 // ============================================================================
 
 export function MaterialPicker({
-  currentShader,
-  onShaderChange,
+  currentMaterial,
+  onMaterialChange,
   hudVisible = true,
 }: MaterialPickerProps) {
   const [open, setOpen] = useState(false);
@@ -69,9 +69,9 @@ export function MaterialPicker({
               className={cn(
                 "relative flex w-full cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
                 "text-zinc-300 hover:bg-zinc-800 hover:text-white focus:bg-zinc-800",
-                currentShader === shader.id && "bg-zinc-700 text-white"
+                currentMaterial === shader.id && "bg-zinc-700 text-white"
               )}
-              onClick={() => onShaderChange(shader.id)}
+              onClick={() => onMaterialChange(shader.id)}
             >
               {shader.name}
             </button>

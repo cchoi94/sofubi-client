@@ -5,7 +5,6 @@ import type { BottomToolbarProps } from "~/constants/types";
 // Components
 import { BrushTypePicker, ColorPicker } from "./Brush";
 import { CursorModePicker } from "./CursorModePicker";
-import { MaterialPicker } from "./MaterialPicker";
 import { ModelPicker } from "./ModelPicker";
 import { RotateCcw } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -23,8 +22,8 @@ import {
 export function BottomToolbar({
   brush,
   onBrushChange,
-  currentShader,
-  onShaderChange,
+  paintMaterial,
+  onPaintMaterialChange,
   cursorMode,
   onCursorModeChange,
   colorHistory,
@@ -81,6 +80,8 @@ export function BottomToolbar({
           <BrushTypePicker
             brush={brush}
             onBrushChange={onBrushChange}
+            paintMaterial={paintMaterial}
+            onPaintMaterialChange={onPaintMaterialChange}
             hudVisible={hudVisible}
           />
 
@@ -92,15 +93,6 @@ export function BottomToolbar({
             colorHistory={colorHistory}
             onColorChange={onColorChange}
             onColorCommit={onColorCommit}
-            hudVisible={hudVisible}
-          />
-
-          <Separator orientation="vertical" className="h-6 mx-1" />
-
-          {/* Material Picker */}
-          <MaterialPicker
-            currentShader={currentShader}
-            onShaderChange={onShaderChange}
             hudVisible={hudVisible}
           />
 

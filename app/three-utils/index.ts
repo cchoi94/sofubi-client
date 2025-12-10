@@ -63,3 +63,10 @@ export type { RaycastResult } from "./raycasting";
 // Painting
 export { paintAtUV } from "./painting";
 export type { PaintingRefs } from "./painting";
+
+// Multi-material rendering
+export { MultiMaterialRenderer } from "./multiMaterialRenderer";
+export type {
+  MaterialLayer,
+  MultiMaterialRendererConfig,
+} from "./multiMaterialRenderer";

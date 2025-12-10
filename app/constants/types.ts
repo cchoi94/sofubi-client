@@ -29,6 +29,7 @@ export interface BrushState {
   radius: number;
   opacity: number;
   hardness: number;
+  paintMaterial: string; // Material shader ID to paint with (e.g., "plastic", "metal")
 }
 
 /**
@@ -71,8 +72,8 @@ export interface ModelSelectionProps {
 export interface BottomToolbarProps {
   brush: BrushState;
   onBrushChange: (brush: Partial<BrushState>) => void;
-  currentShader: string;
-  onShaderChange: (shaderId: string) => void;
+  paintMaterial: string; // Material to paint with (e.g., "plastic", "metal")
+  onPaintMaterialChange: (materialId: string) => void;
   cursorMode: CursorMode;
   onCursorModeChange: (mode: CursorMode) => void;
   colorHistory: string[];

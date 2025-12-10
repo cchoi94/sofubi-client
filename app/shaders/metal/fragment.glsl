@@ -8,11 +8,14 @@ uniform sampler2D normalMap;
 uniform sampler2D roughnessMap;
 uniform sampler2D metalnessMap;
 uniform sampler2D aoMap;
+uniform sampler2D materialMask;      // Material ID mask
 uniform float normalScale;
 uniform float useNormalMap;
 uniform float useRoughnessMap;
 uniform float useMetalnessMap;
 uniform float useAoMap;
+uniform float useMaterialMask;       // Toggle for material masking
+uniform float materialId;            // This shader's material ID (1 for metal)
 uniform vec3 metalColor;
 uniform float metalness;
 uniform float roughness;
@@ -56,6 +59,21 @@ vec3 F_Schlick(float cosTheta, vec3 F0) {
 }
 
 void main() {
+  // -------------------------------------------------------------------------
+  // MATERIAL ID MASKING (multi-material system)
+  // -------------------------------------------------------------------------
+  // If material mask is enabled, only render where the mask matches this material's ID
+  if (useMaterialMask > 0.5) {
+    // Sample material mask (R channel: normalized 0.0-1.0)
+    float maskValue = texture2D(materialMask, vUv).r;
+
+    // Metal ID is 0.2 (tolerance ±0.1)
+    // Only render where mask is painted with metal
+    if (maskValue < 0.1 || maskValue > 0.3) {
+      discard;
+    }
+  }
+
   vec4 paintColor = texture2D(paintTexture, vUv);
 
   // Die-cast base color - paint replaces where painted
