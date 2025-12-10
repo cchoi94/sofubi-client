@@ -1064,8 +1064,8 @@ export default function Home() {
 
       // Airbrush constants
       const isAirbrush = type === BrushType.Airbrush;
-      // Iwata Tuning: High sharpness for tight core, High density for fine atomization
-      const GAUSSIAN_SHARPNESS = 15.0;
+      // Soft edge: Low sharpness for smooth, gradual falloff
+      const GAUSSIAN_SHARPNESS = 3.0;  // Lower = softer edge
       const STAMP_DENSITY = 1.0;
       const radiusSq = radius * radius;
 
@@ -1185,7 +1185,8 @@ export default function Home() {
       // Adjust opacity based on brush type
       const isAirbrush = brush.type === BrushType.Airbrush;
       const MAX_COVERAGE = 0.95;
-      const typeOpacityMult = isAirbrush ? 0.6 : 1.0;
+      // Iwata-style: High opacity multiplier for powerful, responsive spray
+      const typeOpacityMult = isAirbrush ? 1.2 : 1.0;
 
       // Apply opacity
       ctx.globalAlpha = brush.opacity * MAX_COVERAGE * typeOpacityMult;

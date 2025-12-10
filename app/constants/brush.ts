@@ -17,8 +17,8 @@ export const BRUSH_PRESETS: Record<BrushType, Omit<BrushState, "color">> = {
   [BrushType.Airbrush]: {
     type: BrushType.Airbrush,
     radius: 50,
-    opacity: 0.3,
-    hardness: 0.05, // Very soft edges
+    opacity: 0.3,  // Iwata-style: High flow rate for quick coverage
+    hardness: 0.01, // Very soft edges
   },
   [BrushType.Paintbrush]: {
     type: BrushType.Paintbrush,
