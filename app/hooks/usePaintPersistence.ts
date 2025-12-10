@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type * as THREE from "three";
 import { PAINT_CANVAS_SIZE } from "~/constants";
+import { getMaterialId } from "~/shaders";
 
 // ============================================================================
 // TYPES
@@ -14,6 +15,7 @@ export interface PersistentPaintState {
   // Current shader ID
   shaderId: string;
   // Timestamp for versioning
+  materialMaskData: string;
   timestamp: number;
   // Canvas size (for validation)
   canvasSize: number;
@@ -58,6 +60,8 @@ export interface UsePaintPersistenceReturn {
     modelId: string,
     ctx: CanvasRenderingContext2D,
     texture: THREE.CanvasTexture,
+    maskCtx: CanvasRenderingContext2D | null,
+    maskTexture: THREE.CanvasTexture | null,
     thicknessMap: Float32Array
   ) => Promise<boolean>;
   /** Get the last selected model ID */
@@ -261,6 +265,8 @@ function setStorageRoot(storageKey: string, root: PaintStorageRoot): void {
 export function usePaintPersistence(
   paintCtxRef: React.RefObject<CanvasRenderingContext2D | null>,
   paintTextureRef: React.RefObject<THREE.CanvasTexture | null>,
+  materialMaskCtxRef: React.RefObject<CanvasRenderingContext2D | null>,
+  materialMaskTextureRef: React.RefObject<THREE.CanvasTexture | null>,
   thicknessMapRef: React.RefObject<Float32Array | null>,
   currentShaderIdRef: React.RefObject<string>,
   currentModelIdRef: React.RefObject<string>,
@@ -284,6 +290,7 @@ export function usePaintPersistence(
     }
 
     const ctx = paintCtxRef.current;
+    const maskCtx = materialMaskCtxRef.current;
     const thicknessMap = thicknessMapRef.current;
     const shaderId = currentShaderIdRef.current;
     const modelId = currentModelIdRef.current;
@@ -297,6 +304,11 @@ export function usePaintPersistence(
       "image/jpeg",
       CANVAS_JPEG_QUALITY
     );
+
+    // Save material mask canvas (grayscale material IDs)
+    const materialMaskDataUrl =
+      maskCtx?.canvas.toDataURL("image/jpeg", CANVAS_JPEG_QUALITY) || "";
+
     const thicknessSnapshot = new Float32Array(thicknessMap);
 
     isSavingRef.current = true;
@@ -307,6 +319,7 @@ export function usePaintPersistence(
 
         const state: PersistentPaintState = {
           canvasData: canvasDataUrl,
+          materialMaskData: materialMaskDataUrl,
           thicknessData: thicknessData,
           shaderId,
           timestamp: Date.now(),
@@ -339,6 +352,7 @@ export function usePaintPersistence(
     }
   }, [
     paintCtxRef,
+    materialMaskCtxRef,
     thicknessMapRef,
     currentShaderIdRef,
     currentModelIdRef,
@@ -446,15 +460,31 @@ export function usePaintPersistence(
       modelId: string,
       ctx: CanvasRenderingContext2D,
       texture: THREE.CanvasTexture,
+      maskCtx: CanvasRenderingContext2D | null,
+      maskTexture: THREE.CanvasTexture | null,
       thicknessMap: Float32Array
     ): Promise<boolean> => {
       const state = loadState(modelId);
       if (!state) return false;
 
       try {
+        // Restore paint canvas
         const imageLoaded = await loadImageToCanvas(state.canvasData, ctx);
         if (!imageLoaded) return false;
 
+        // Restore material mask canvas
+        if (state.materialMaskData && maskCtx && maskTexture) {
+          const maskLoaded = await loadImageToCanvas(
+            state.materialMaskData,
+            maskCtx
+          );
+          if (maskLoaded) {
+            maskTexture.needsUpdate = true;
+            console.log(`Material mask restored for ${modelId}`);
+          }
+        }
+
+        // Restore thickness map
         const decodedThickness = decodeSparseThickness(
           state.thicknessData,
           PAINT_CANVAS_SIZE * PAINT_CANVAS_SIZE
@@ -509,6 +539,7 @@ export function usePaintPersistence(
   useEffect(() => {
     const handleBeforeUnload = () => {
       const ctx = paintCtxRef.current;
+      const maskCtx = materialMaskCtxRef.current;
       const thicknessMap = thicknessMapRef.current;
       const shaderId = currentShaderIdRef.current;
       const modelId = currentModelIdRef.current;
@@ -520,10 +551,15 @@ export function usePaintPersistence(
           "image/jpeg",
           CANVAS_JPEG_QUALITY
         );
+
+        const materialMaskDataUrl =
+          maskCtx?.canvas.toDataURL("image/jpeg", CANVAS_JPEG_QUALITY) || "";
+
         const thicknessData = encodeSparseThickness(thicknessMap);
 
         const state: PersistentPaintState = {
           canvasData: canvasDataUrl,
+          materialMaskData: materialMaskDataUrl,
           thicknessData,
           shaderId,
           timestamp: Date.now(),
@@ -547,6 +583,7 @@ export function usePaintPersistence(
     };
   }, [
     paintCtxRef,
+    materialMaskCtxRef,
     thicknessMapRef,
     currentShaderIdRef,
     currentModelIdRef,

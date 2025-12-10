@@ -22,7 +22,7 @@ const guiParams: ShaderGuiParam[] = [
   {
     name: "metalColor",
     type: "color",
-    default: "#d4d4d8" // Zinc-like silver
+    default: "#d4d4d8", // Zinc-like silver
   },
   {
     name: "metalness",
@@ -123,7 +123,8 @@ function createMaterial(config: ShaderConfig): THREE.ShaderMaterial {
       materialId: { value: 1.0 }, // Metal shader is material ID 1
 
       // Material properties
-      metalColor: { value: new THREE.Color("#d4d4d8") },
+      // metalColor: { value: new THREE.Color("#d4d4d8") },
+      metalColor: { value: new THREE.Color("#ffffff") },
       metalness: { value: 1.0 },
       roughness: { value: 0.35 },
       reflectivity: { value: 0.5 },
@@ -195,7 +196,8 @@ function dispose(material: THREE.Material): void {
 export const metalShader: CustomShader = {
   name: "Die-Cast Metal",
   id: "metal",
-  description: "Matte metallic zinc/zamak die-cast toy look with material masking",
+  description:
+    "Matte metallic zinc/zamak die-cast toy look with material masking",
   createMaterial,
   guiParams,
   updateUniforms,

@@ -192,6 +192,8 @@ export default function Home() {
   } = usePaintPersistence(
     paintCtxRef,
     paintTextureRef,
+    materialMaskCtxRef,
+    materialMaskTextureRef,
     thicknessMapRef,
     currentShaderIdRef,
     currentModelIdRef,
@@ -973,17 +975,28 @@ export default function Home() {
         // Try to restore saved paint state from localStorage
         const ctx = paintCtxRef.current;
         const texture = paintTextureRef.current;
+        const maskCtx = materialMaskCtxRef.current;
+        const maskTexture = materialMaskTextureRef.current;
         const thicknessMap = thicknessMapRef.current;
         if (ctx && texture && thicknessMap && selectedModel) {
-          restoreToCanvas(selectedModel.id, ctx, texture, thicknessMap).then(
-            (restored: boolean) => {
-              if (restored) {
-                console.log(
-                  "Restored previous paint session from localStorage"
-                );
+          restoreToCanvas(
+            selectedModel.id,
+            ctx,
+            texture,
+            maskCtx,
+            maskTexture,
+            thicknessMap
+          ).then((restored: boolean) => {
+            if (restored) {
+              console.log(
+                "Restored previous paint session from localStorage"
+              );
+              // Update material layers after restoring material mask
+              if (multiMaterialRendererRef.current) {
+                multiMaterialRendererRef.current.updateMaterialLayers();
               }
             }
-          );
+          });
         }
 
         // Build UV islands for fill brush feature
