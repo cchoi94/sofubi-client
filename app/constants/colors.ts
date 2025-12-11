@@ -20,12 +20,9 @@ export const DEFAULT_COLORS = [
  * These define the initial canvas color for each shader style
  */
 export const SHADER_BASE_COLORS: Record<string, string> = {
-  [ShaderId.GLASS]: "#f0f0f0",
-  [ShaderId.PLASTIC]: "#888888",
-  [ShaderId.STANDARD]: "#ffffff",
+  [ShaderId.PLASTIC]: "#ffffff",
   [ShaderId.CERAMIC]: "#fafafa",
-  [ShaderId.PEARLESCENT]: "#e0e0e0",
-  [ShaderId.METAL]: "#c0c0c0",
+  [ShaderId.METAL]: "#ffffff",
 };
 
 /**

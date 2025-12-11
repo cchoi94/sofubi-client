@@ -22,7 +22,7 @@ import {
 } from "~/components/ui/tooltip";
 import { BRUSH_PRESETS, BrushType, HOTKEYS, getHotkeyLabel } from "~/constants";
 import type { BrushState } from "~/constants/types";
-import { shaders } from "~/shaders";
+import { paintMaterials } from "~/shaders";
 
 // ============================================================================
 // BRUSH TYPE PICKER PROPS
@@ -154,17 +154,17 @@ export function BrushTypePicker({
           {/* Material Selection */}
           <div className="space-y-0.5">
             <Label className="text-xs px-2 text-zinc-400">Material</Label>
-            {shaders.map((shader) => (
+            {paintMaterials.map((material) => (
               <button
-                key={shader.id}
+                key={material.id}
                 className={cn(
                   "relative flex w-full cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
                   "text-zinc-300 hover:bg-zinc-800 hover:text-white focus:bg-zinc-800",
-                  paintMaterial === shader.id && "bg-zinc-700 text-white"
+                  paintMaterial === material.id && "bg-zinc-700 text-white"
                 )}
-                onClick={() => onPaintMaterialChange(shader.id)}
+                onClick={() => onPaintMaterialChange(material.id)}
               >
-                {shader.name}
+                {material.name}
               </button>
             ))}
           </div>

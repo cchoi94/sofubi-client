@@ -1,15 +1,10 @@
 /**
- * Shader Registry
- *
  * Central export for all available shaders. Import this file to get
  * access to all shaders and utility functions for the shader system.
  */
 
 import type { CustomShader, ShaderConfig, ShaderGuiParam } from "./types";
-import { standardShader } from "./standard";
-import { pearlescentArmorShader } from "./pearlescent-armor/index";
 import { plasticShader } from "./plastic/index";
-import { glassShader } from "./glass/index";
 import { ceramicShader } from "./ceramic/index";
 import { metalShader } from "./metal/index";
 
@@ -25,8 +20,6 @@ export const ShaderId = {
   CERAMIC: "ceramic-glaze",
   PLASTIC: "plastic",
   METAL: "metal",
-  PEARLESCENT: "pearlescent-armor",
-  GLASS: "glass",
 } as const;
 
 export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
@@ -51,10 +44,7 @@ export type ShaderIdType = (typeof ShaderId)[keyof typeof ShaderId];
 export const MATERIAL_ID_MAP: Record<string, number> = {
   [ShaderId.PLASTIC]: 0.0, // 0/255 - Base (unpainted)
   [ShaderId.METAL]: 0.2, // 51/255 - Die-cast metal
-  [ShaderId.GLASS]: 0.4, // 102/255 - Glass
   [ShaderId.CERAMIC]: 0.6, // 153/255 - Ceramic
-  [ShaderId.PEARLESCENT]: 0.75, // 191/255 - Pearlescent
-  [ShaderId.STANDARD]: 0.9, // 229/255 - Standard PBR
 } as const;
 
 /**
@@ -82,15 +72,19 @@ export function getShaderId(materialId: number): string | undefined {
 // ============================================================================
 
 /**
- * All available shaders in order of display
+ * All available shaders in order of display (for base material selection)
+ * NOTE: Only Plastic is in the main shader selector
  */
-export const shaders: CustomShader[] = [
-  // standardShader,
-  // ceramicShader,
+export const shaders: CustomShader[] = [plasticShader];
+
+/**
+ * All available paint materials (for brush material picker)
+ * These are materials you can PAINT with, rendered within the plastic shader
+ */
+export const paintMaterials: CustomShader[] = [
   plasticShader,
   metalShader,
-  // pearlescentArmorShader,
-  // glassShader,
+  ceramicShader,
 ];
 
 /**
@@ -120,11 +114,4 @@ export function getShaderNames(): { id: string; name: string }[] {
 export const DEFAULT_SHADER_ID: ShaderIdType = ShaderId.PLASTIC;
 
 // Named exports for individual shaders
-export {
-  // standardShader,
-  pearlescentArmorShader,
-  plasticShader,
-  glassShader,
-  ceramicShader,
-  metalShader,
-};
+export { plasticShader, ceramicShader, metalShader };
