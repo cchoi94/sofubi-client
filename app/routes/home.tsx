@@ -51,7 +51,6 @@ import {
   getShaderById,
   DEFAULT_SHADER_ID,
   type ShaderConfig,
-  ShaderId,
   getMaterialId,
 } from "~/shaders";
 
@@ -988,9 +987,6 @@ export default function Home() {
             thicknessMap
           ).then((restored: boolean) => {
             if (restored) {
-              console.log(
-                "Restored previous paint session from localStorage"
-              );
               // Update material layers after restoring material mask
               if (multiMaterialRendererRef.current) {
                 multiMaterialRendererRef.current.updateMaterialLayers();
