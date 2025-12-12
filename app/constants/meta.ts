@@ -2,7 +2,7 @@ export const SITE_URL = "https://sofubi.art";
 
 export const META_CONFIG = {
   title: "Sofubi",
-  description: "Paint directly on 3D models in your browser",
+  description: "Paint them sofubis!",
   siteName: "Sofubi",
   videoUrl: `${SITE_URL}/assets/videos/og_video2.mp4`,
   thumbnailUrl: `${SITE_URL}/favicon.ico`,
